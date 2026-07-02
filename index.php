@@ -7,7 +7,7 @@ include 'connexion.php';
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>Boom Beach Tracker - Accueil</title>
+    <title>Beachapedia - Accueil</title>
     <style>
         .tabs { display: flex; cursor: pointer; margin-bottom: 20px; }
         .tab { padding: 10px 20px; background: #34495e; color: white; }

@@ -94,6 +94,10 @@ function getBuildingsDisplay($pdo, $id_player, $qg) {
 
             // Coût / temps / XP du PROCHAIN niveau (niveau_actuel + 1), si pas déjà au max
             $next = null;
+            $remaining_wood = 0;
+            $remaining_stone = 0;
+            $remaining_iron = 0;
+            $remaining_time_seconds = 0;
             if ($niveau_actuel < $niveau_max) {
                 $stmt_next = $pdo->prepare("
                     SELECT BuildCostWood, BuildCostStone, BuildCostIron,
@@ -102,6 +106,20 @@ function getBuildingsDisplay($pdo, $id_player, $qg) {
                 ");
                 $stmt_next->execute([$b['TID'], $niveau_actuel + 1]);
                 $next = $stmt_next->fetch(PDO::FETCH_ASSOC) ?: null;
+
+                // Total restant : somme de TOUS les niveaux entre l'actuel et le max
+                // (utilisé pour le récap "coût total restant" de la sidebar).
+                $stmt_remaining = $pdo->prepare("
+                    SELECT SUM(BuildCostWood) AS wood, SUM(BuildCostStone) AS stone, SUM(BuildCostIron) AS iron,
+                           SUM(BuildTimeD*86400 + BuildTimeH*3600 + BuildTimeM*60 + BuildTimeS) AS time_seconds
+                    FROM buildings WHERE TID = ? AND Niveau > ? AND Niveau <= ?
+                ");
+                $stmt_remaining->execute([$b['TID'], $niveau_actuel, $niveau_max]);
+                $row_remaining = $stmt_remaining->fetch(PDO::FETCH_ASSOC);
+                $remaining_wood         = (int)($row_remaining['wood'] ?? 0);
+                $remaining_stone        = (int)($row_remaining['stone'] ?? 0);
+                $remaining_iron         = (int)($row_remaining['iron'] ?? 0);
+                $remaining_time_seconds = (int)($row_remaining['time_seconds'] ?? 0);
             }
 
             $buildings_display[$category][] = [
@@ -120,6 +138,11 @@ function getBuildingsDisplay($pdo, $id_player, $qg) {
                 'BuildTimeM'     => $next['BuildTimeM']     ?? null,
                 'BuildTimeS'     => $next['BuildTimeS']     ?? null,
                 'XpGain'         => $next['XpGain']         ?? null,
+                // Totaux restants (jusqu'au niveau max), pour le récap de la sidebar
+                'remaining_wood'         => $remaining_wood,
+                'remaining_stone'        => $remaining_stone,
+                'remaining_iron'         => $remaining_iron,
+                'remaining_time_seconds' => $remaining_time_seconds,
             ];
         }
     }
@@ -262,6 +285,8 @@ function getFilteredUnits($pdo, $qg, $arsenal_max, $typeFilterSQL, $player_progr
         $niveau_max = (int)($stmt_max_char->fetchColumn() ?: $niveau_joueur);
 
         $next_cost = null;
+        $remaining_cost = 0;
+        $remaining_time_h = 0.0;
         if ($niveau_joueur < $niveau_max) {
             try {
                 $stmt_next_cost = $pdo->prepare("
@@ -270,6 +295,17 @@ function getFilteredUnits($pdo, $qg, $arsenal_max, $typeFilterSQL, $player_progr
                 ");
                 $stmt_next_cost->execute([$u['TID'], $niveau_joueur]);
                 $next_cost = $stmt_next_cost->fetch(PDO::FETCH_ASSOC) ?: null;
+
+                // Total restant : somme de TOUS les niveaux entre l'actuel et le max
+                // (utilisé pour le récap "coût total restant" de la sidebar).
+                $stmt_remaining = $pdo->prepare("
+                    SELECT SUM(UpgradeCost) AS total_cost, SUM(UpgradeTimeH) AS total_time
+                    FROM characters WHERE TID = ? AND Niveau >= ? AND Niveau < ?
+                ");
+                $stmt_remaining->execute([$u['TID'], $niveau_joueur, $niveau_max]);
+                $row_remaining = $stmt_remaining->fetch(PDO::FETCH_ASSOC);
+                $remaining_cost   = (int)($row_remaining['total_cost'] ?? 0);
+                $remaining_time_h = (float)($row_remaining['total_time'] ?? 0);
             } catch (PDOException $e) {
                 // On log l'erreur mais on ne casse jamais l'affichage de la page pour un souci de coût
                 error_log("Erreur récupération coût troupe {$u['TID']} niveau {$niveau_joueur} : " . $e->getMessage());
@@ -290,7 +326,10 @@ function getFilteredUnits($pdo, $qg, $arsenal_max, $typeFilterSQL, $player_progr
             'next_talent_id' => $next_talent_id,
             'abilities' => $officer_abilities,
             'niveau_autorise' => $niveau_max,
-            'next_cost' => $next_cost
+            'next_cost' => $next_cost,
+            // Totaux restants (jusqu'au niveau max), pour le récap de la sidebar
+            'remaining_cost' => $remaining_cost,
+            'remaining_time_h' => $remaining_time_h
         ];
     }
     return $final_list;
@@ -433,6 +472,23 @@ try {
     error_log("Erreur progress_engraving : " . $e->getMessage());
 }
 
+// Coût en Jetons de recherche par TID + palier de qualité (Quality).
+// IMPORTANT : ce tableau doit être construit AVANT la boucle principale ci-dessous,
+// qui s'en sert pour attacher les coûts à chaque gravure.
+$engravings_costs = [];
+try {
+    $stmt_costs = $pdo->query("SELECT TID, Quality, TokensNeeded FROM engravings ORDER BY TID ASC, Quality ASC");
+    while ($cost_row = $stmt_costs->fetch(PDO::FETCH_ASSOC)) {
+        $cost_tid = $cost_row['TID'];
+        $q_lvl = (int)$cost_row['Quality'];
+        $tokens = (int)$cost_row['TokensNeeded'];
+
+        $engravings_costs[$cost_tid][$q_lvl] = $tokens;
+    }
+} catch (PDOException $e) {
+    error_log("Erreur engravings costs : " . $e->getMessage());
+}
+
 try {
     // Requête principale qui récupère les gravures et leur ID unique (id) de la table engravingid
     $stmt_eng = $pdo->query("
@@ -450,9 +506,10 @@ try {
         $tid = $row['TID'];
         
         // MODIFICATION ICI : On va chercher dans notre tableau de progression via l'id numérique
-        $row['niveau_actuel'] = $engravings_progress[$id_engraving  ] ?? 0;
+        $row['niveau_actuel'] = $engravings_progress[$id_engraving] ?? 0;
 
-        $row['TokensNeeded'] = isset($engravings_costs[$tid]) ? $engravings_costs[$tid] : [];
+        // Coûts (Jetons de recherche) indexés par palier de qualité, ex: [1 => 50, 2 => 120, ...]
+        $row['costs'] = $engravings_costs[$tid] ?? [];
         
         // Dispatch dans les catégories pour l'affichage
         if ($cat === 'Offensive') {
@@ -463,19 +520,5 @@ try {
     }
 } catch (PDOException $e) {
     error_log("Erreur lors de la récupération des gravures : " . $e->getMessage());
-}
-
-$engravings_costs = [];
-try {
-    $stmt_costs = $pdo->query("SELECT TID, Quality, TokensNeeded FROM engravings ORDER BY TID ASC, Niveau ASC");
-    while ($cost_row = $stmt_costs->fetch(PDO::FETCH_ASSOC)) {
-        $cost_tid = $cost_row['TID'];
-        $q_lvl = (int)$cost_row['Quality'];
-        $tokens = (int)$cost_row['TokensNeeded'];
-        
-        $engravings_costs[$cost_tid][$q_lvl] = $tokens;
-    }
-} catch (PDOException $e) {
-    error_log("Erreur engravings costs : " . $e->getMessage());
 }
 // ========================================================

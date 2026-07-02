@@ -15,7 +15,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_auth'])) {
             $stmt = $pdo->prepare("INSERT INTO joueurs (id_player, pseudo, password) VALUES (?, ?, ?)");
             $stmt->execute([$id_jeu, $pseudo, $pass]);
 
-            $starting_buildings = [11, 14, 25, 27, 15, 12];
+            $starting_buildings = [10, 11, 13, 24, 26];
         
             $stmt_build = $pdo->prepare("
                 INSERT INTO progress_building (id_player, id_building, id_instance, niveau, Debloque) 

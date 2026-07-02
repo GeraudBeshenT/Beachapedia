@@ -19,7 +19,14 @@ window.showTab = function(tabId) {
     targetTab.style.display = 'block';
     targetTab.classList.add('active');
 
-    // Mémorise l'onglet actif pour le restaurer après un refresh ou une amélioration
+    // Met à jour l'URL (dashboard.php#Categorie-SousCategorie) : c'est ce qui rend
+    // chaque onglet partageable en lien direct et navigable au bouton précédent/suivant.
+    if (window.location.hash.substring(1) !== tabId) {
+        window.location.hash = tabId;
+    }
+
+    // Mémorise aussi l'onglet actif en localStorage, en filet de sécurité si jamais
+    // la page est rouverte sans hash dans l'URL (ex: lien direct vers dashboard.php seul).
     try {
         localStorage.setItem('activeTab', tabId);
     } catch (e) {
@@ -33,6 +40,15 @@ window.showTab = function(tabId) {
         if (submenu) submenu.style.display = 'block';
     }
 };
+
+// Navigation clavier/souris précédent-suivant du navigateur, ou édition manuelle de l'URL :
+// on réagit à tout changement de hash pour rester synchronisé avec l'onglet affiché.
+window.addEventListener('hashchange', function() {
+    const tabFromHash = window.location.hash.substring(1);
+    if (tabFromHash && document.getElementById(tabFromHash)) {
+        showTab(tabFromHash);
+    }
+});
 
 // Fonction pour le changement visuel des bâtiments et calculs associés
 window.calculateRemaining = function(element) {
@@ -416,6 +432,30 @@ window.toggleSubMenu = function(element) {
     submenu.style.display = (submenu.style.display === "none" || submenu.style.display === "") ? "block" : "none";
 };
 
+// Clic sur un menu-header possédant un sous-menu (Bâtiments, Armée, Gravures) :
+// on ouvre son sous-menu ET on affiche directement sa page "mini-onglets"
+// (cartes de navigation vers chaque sous-catégorie).
+window.openCategoryTab = function(element, tabId) {
+    const submenu = element.nextElementSibling;
+    if (submenu) submenu.style.display = "block";
+    showTab(tabId);
+};
+
+// Ouverture/fermeture du petit menu déroulant du profil (bas de la sidebar)
+window.toggleProfileMenu = function(event) {
+    event.stopPropagation();
+    const dropdown = document.getElementById('profileDropdown');
+    if (dropdown) dropdown.classList.toggle('open');
+};
+
+// Ferme le menu du profil si on clique ailleurs sur la page
+document.addEventListener('click', function(e) {
+    const dropdown = document.getElementById('profileDropdown');
+    if (dropdown && dropdown.classList.contains('open') && !e.target.closest('.profile-btn')) {
+        dropdown.classList.remove('open');
+    }
+});
+
 /**
  * Modifie le niveau du monument et rafraîchit à la volée le statut grisé/actif des bonus
  */
@@ -697,38 +737,46 @@ window.showEngravingSubTab = function(subTabId, buttonElement) {
     }
 };
 
-window.triggerUpgradeEngraving = function(tid, safeId, maxLvl) {
+// Affiche/masque le tableau détaillé des coûts d'une gravure, sous sa carte
+window.toggleCostTable = function(safeId) {
+    const table = document.getElementById('table-cost-' + safeId);
+    const chevron = document.getElementById('chevron-' + safeId);
+    if (!table) return;
+
+    const isOpen = table.classList.toggle('open');
+    if (chevron) {
+        const icon = chevron.querySelector('.chevron-icon');
+        if (icon) icon.textContent = isOpen ? '🔼' : '🔽';
+    }
+};
+
+window.triggerUpgradeEngraving = function(idEngraving, safeId, maxLvl) {
     const displayElement = document.getElementById('lvl-' + safeId);
     if (!displayElement) return;
-    
-    const textContent = displayElement.innerText;
-    let currentLvl = 0;
-    if (textContent.includes("Niveau")) {
-        currentLvl = parseInt(textContent.replace('Niveau ', '')) || 0;
-    }
-    
-    let newLvl = currentLvl + 1;
-    
-    if (newLvl > maxLvl) {
-        alert("Niveau maximum atteint ! (" + maxLvl + ")");
-        return;
-    }
 
     const formData = new FormData();
-    formData.append('tid', tid);
-    formData.append('target_level', newLvl);
+    formData.append('id_engraving', idEngraving);
 
     fetch('upgrade_engraving.php', { method: 'POST', body: formData })
     .then(response => response.json())
     .then(data => {
         if (data.success) {
+            const newLvl = data.new_level;
+
             // 1. Mettre à jour l'affichage du niveau principal
-            displayElement.innerText = "Niveau " + newLvl;
-            
-            // 2. Changer le texte du bouton si c'était "Débloquer"
-            const btnText = document.querySelector(`#card-${safeId} .btn-text`);
-            if (btnText && btnText.innerText === "Débloquer") {
-                btnText.innerText = "Améliorer";
+            displayElement.innerText = "Niveau " + newLvl + " / " + maxLvl;
+
+            // 2. Changer le texte du bouton, et le désactiver si le niveau max est atteint
+            const card = document.getElementById('card-' + safeId);
+            const btn = card ? card.querySelector('.btn-upgrade') : null;
+            const btnText = card ? card.querySelector('.btn-text') : null;
+            const isMaxed = newLvl >= maxLvl;
+
+            if (btnText) {
+                btnText.innerText = isMaxed ? "Max !" : "Améliorer";
+            }
+            if (btn && isMaxed) {
+                btn.disabled = true;
             }
 
             // 3. Mettre à jour l'affichage du coût du PROCHAIN niveau
@@ -736,11 +784,13 @@ window.triggerUpgradeEngraving = function(tid, safeId, maxLvl) {
             if (costElement) {
                 const costs = JSON.parse(costElement.getAttribute('data-costs') || '{}');
                 const nextLvl = newLvl + 1;
-                
+
                 if (costs[nextLvl] !== undefined) {
                     costElement.innerText = costs[nextLvl];
                 } else {
                     costElement.innerText = "Max";
+                    const costsRow = costElement.closest('.troop-card-costs');
+                    if (costsRow) costsRow.style.display = 'none';
                 }
             }
 
@@ -751,29 +801,20 @@ window.triggerUpgradeEngraving = function(tid, safeId, maxLvl) {
                 rows.forEach((row, index) => {
                     const rowLvl = index + 1; // Les niveaux commencent à 1
                     const statusCell = row.querySelector('.status-cell');
-                    
+
+                    row.classList.remove('cost-row-done', 'cost-row-next');
                     if (rowLvl <= newLvl) {
-                        row.style.opacity = "0.5";
-                        row.style.color = "#95a5a6";
-                        row.style.background = "none";
-                        row.style.fontWeight = "normal";
+                        row.classList.add('cost-row-done');
                         if (statusCell) statusCell.innerText = "✅ Acquis";
                     } else if (rowLvl === newLvl + 1) {
-                        row.style.opacity = "1";
-                        row.style.color = "#f1c40f";
-                        row.style.background = "rgba(241, 196, 15, 0.1)";
-                        row.style.fontWeight = "bold";
+                        row.classList.add('cost-row-next');
                         if (statusCell) statusCell.innerText = "⏳ Suivant";
                     } else {
-                        row.style.opacity = "1";
-                        row.style.color = "#ecf0f1";
-                        row.style.background = "none";
-                        row.style.fontWeight = "normal";
-                        if (statusCell) statusCell.innerText = "🔒 Verrouillé";
+                        if (statusCell) statusCell.innerText = "🔒 Bloqué";
                     }
                 });
             }
-            
+
             console.log("Succès :", data.message);
         } else {
             alert("Erreur serveur : " + data.message);

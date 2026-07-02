@@ -119,7 +119,7 @@ function renderBuildingsTable($buildings_list) {
                 $temps_h     = (int)($b['BuildTimeH'] ?? 0);
                 $temps_m     = (int)($b['BuildTimeM'] ?? 0);
                 $temps_txt   = trim(($temps_j > 0 ? "{$temps_j}j " : "") . ($temps_h > 0 ? "{$temps_h}h " : "") . ($temps_m > 0 ? "{$temps_m}m" : ""));
-                if ($temps_txt === '') $temps_txt = "Instantané";
+                if ($temps_txt === '') $temps_txt = "3 sec";
 
                 echo "
                 <div class='building-card-costs'>
@@ -128,7 +128,7 @@ function renderBuildingsTable($buildings_list) {
                     <span class='building-cost-item'><img class='building-cost-icon' src='images/icons/Iron.png' alt='Fer'>{$cout_fer}</span>
                 </div>
                 <div class='building-card-time'>
-                    <img class='building-time-icon' src='images/icons/Time_Icon.png' alt='Temps'>{$temps_txt}
+                    <img class='building-time-icon' src='images/icons/Time Icon.png' alt='Temps'>{$temps_txt}
                 </div>";
             }
 
@@ -184,10 +184,24 @@ function getCategoryStats($buildings) {
 }
 
 function renderStatsSidebar($title, $buildings_data, $stats) {
+    // --- Total restant (coût + temps) pour amener TOUTE la catégorie au niveau max ---
+    $total_wood = 0;
+    $total_stone = 0;
+    $total_iron = 0;
+    $total_seconds = 0;
+    foreach ($buildings_data as $b) {
+        $total_wood    += (int)($b['remaining_wood']         ?? 0);
+        $total_stone   += (int)($b['remaining_stone']        ?? 0);
+        $total_iron    += (int)($b['remaining_iron']         ?? 0);
+        $total_seconds += (int)($b['remaining_time_seconds'] ?? 0);
+    }
+
     echo "<div class='stats-sidebar' style='background: #2c3e50; padding: 15px; border-radius: 8px; color: #fff; border: 1px solid #456789;'>";
     echo "<h4 style='margin: 0 0 10px 0; border-bottom: 2px solid #1abc9c; padding-bottom: 5px;'>{$title}</h4>";
     echo "<div style='font-size: 1.8em; font-weight: bold; color: #1abc9c; text-align: center; margin-bottom: 10px;'>{$stats['percent']}%</div>";
+
     
+
     echo "<ul style='list-style: none; padding: 0; margin: 0; font-size: 0.85em;'>";
     
     $unique_buildings = [];
@@ -207,7 +221,21 @@ function renderStatsSidebar($title, $buildings_data, $stats) {
                 <span style='float:right; color:{$color};'>{$b['current']}/{$b['max']}</span>
               </li>";
     }
-    echo "</ul></div>";
+    echo "</ul>";
+    
+    if ($total_wood > 0 || $total_stone > 0 || $total_iron > 0 || $total_seconds > 0) {
+        $total_time_txt = formatSecondsToText($total_seconds);
+        echo "<div class='sidebar-total-remaining'>
+                <div class='sidebar-total-title'>Total restant pour tout terminer</div>
+                <div class='sidebar-total-costs'>
+                    <span class='sidebar-total-item'><img src='images/icons/Wood.png' alt='Bois'>" . number_format($total_wood, 0, ',', ' ') . "</span>
+                    <span class='sidebar-total-item'><img src='images/icons/Stone.png' alt='Pierre'>" . number_format($total_stone, 0, ',', ' ') . "</span>
+                    <span class='sidebar-total-item'><img src='images/icons/Iron.png' alt='Fer'>" . number_format($total_iron, 0, ',', ' ') . "</span>
+                </div>
+                <div class='sidebar-total-time'><img src='images/icons/Time Icon.png' alt='Temps'>{$total_time_txt}</div>
+              </div>";
+    }
+    echo"</div>";
 }
 
 /**
@@ -216,7 +244,7 @@ function renderStatsSidebar($title, $buildings_data, $stats) {
  */
 function formatUnitsTime($hours) {
     $hours = (float)$hours;
-    if ($hours <= 0) return "Instantané";
+    if ($hours <= 0) return "3 sec";
 
     $total_minutes = (int)round($hours * 60);
     $days = intdiv($total_minutes, 1440);
@@ -229,7 +257,15 @@ function formatUnitsTime($hours) {
     if ($remaining_minutes > 0) $res .= $remaining_minutes . "m";
 
     $res = trim($res);
-    return ($res === '') ? "Instantané" : $res;
+    return ($res === '') ? "3 sec" : $res;
+}
+
+/**
+ * Même conversion que formatUnitsTime, mais à partir d'un nombre de SECONDES
+ * (utilisé pour les temps de construction des bâtiments : BuildTimeD/H/M/S).
+ */
+function formatSecondsToText($seconds) {
+    return formatUnitsTime(((float)$seconds) / 3600);
 }
 
 /**
@@ -320,7 +356,7 @@ function renderUnitsTable($data, $progress = [], $house_levels = []) {
                     <span class='troop-cost-item'><img class='troop-cost-icon' src='{$cost_icon}' alt='{$cost_label}'>{$cout}</span>
                 </div>
                 <div class='troop-card-time'>
-                    <img class='troop-time-icon' src='images/icons/Time_Icon.png' alt='Temps'>{$temps_txt}
+                    <img class='troop-time-icon' src='images/icons/Time Icon.png' alt='Temps'>{$temps_txt}
                 </div>";
 
                 if (!$house_ok) {
@@ -473,7 +509,14 @@ function renderUnitsStatsSidebar($title, $units_list) {
 
     $total_current = 0;
     $total_max = 0;
+    $total_cost = 0;
+    $total_time_h = 0.0;
     $rows_html = "";
+
+    // Liste homogène en Class à chaque appel (Troupes seules ou Proto-troupes seules)
+    $is_proto  = (strcasecmp(trim($units_list[0]['Class'] ?? ''), 'Proto') === 0);
+    $cost_icon = $is_proto ? 'images/icons/Proto_Token.png' : 'images/icons/Gold.png';
+    $cost_label = $is_proto ? 'Jetons Proto' : 'Or';
 
     foreach ($units_list as $u) {
         $nom = htmlspecialchars($u['nom'] ?? '???');
@@ -482,6 +525,8 @@ function renderUnitsStatsSidebar($title, $units_list) {
 
         $total_current += $cur;
         $total_max += $max;
+        $total_cost   += (int)($u['remaining_cost']   ?? 0);
+        $total_time_h += (float)($u['remaining_time_h'] ?? 0);
 
         $color = ($cur >= $max) ? '#2ecc71' : '#f1c40f';
         $rows_html .= "<li style='padding: 5px 0; border-bottom: 1px solid #3e4a56;'>
@@ -496,6 +541,18 @@ function renderUnitsStatsSidebar($title, $units_list) {
     echo "<h4 style='margin: 0 0 10px 0; border-bottom: 2px solid #1abc9c; padding-bottom: 5px;'>{$title}</h4>";
     echo "<div style='font-size: 1.8em; font-weight: bold; color: #1abc9c; text-align: center; margin-bottom: 10px;'>{$percent}%</div>";
     echo "<ul style='list-style: none; padding: 0; margin: 0; font-size: 0.85em;'>{$rows_html}</ul>";
+    if ($total_cost > 0 || $total_time_h > 0) {
+        $total_time_txt = formatUnitsTime($total_time_h);
+        echo "<div class='sidebar-total-remaining'>
+                <div class='sidebar-total-title'>Total restant pour tout terminer</div>
+                <div class='sidebar-total-costs'>
+                    <span class='sidebar-total-item'><img src='{$cost_icon}' alt='{$cost_label}'>" . number_format($total_cost, 0, ',', ' ') . "</span>
+                </div>
+                <div class='sidebar-total-time'><img src='images/icons/Time Icon.png' alt='Temps'>{$total_time_txt}</div>
+              </div>";
+    }
+
+    
     echo "</div>";
 }
 
@@ -646,132 +703,262 @@ function renderMysticMonument($current_mm_level, $all_bonuses, $user_bonuses) {
 }
 
 /**
- * Rendu de l'onglet Gravures séparé par catégories (Offensive / Defensive)
+ * Rendu de l'onglet Gravures séparé par catégories (Offensive / Defensive).
+ * Reprend exactement le même design de carte que les Troupes (.troop-card),
+ * avec un coût unique en Jetons de recherche (au lieu de Or/Temps) et un
+ * tableau détaillé des coûts par niveau, repliable sous la carte.
  */
 function renderEngravingsTable($engravings, $cat_color = "#1abc9c") {
     if (empty($engravings)) {
-        echo "<p style='color: #bdc3c7; font-style: italic; padding: 20px;'>Aucune gravure n'a été trouvée dans cette catégorie.</p>";
+        echo "<p class='empty-msg'>Aucune gravure n'a été trouvée dans cette catégorie.</p>";
         return;
     }
 
-    echo "<div class='units-container'>"; 
-    
+    echo "<div class='troops-grid'>";
+
     foreach ($engravings as $e) {
-        $tid = $e['TID'];
-        
+        $id_engraving = (int)($e['id_engraving'] ?? 0);
+        $tid = $e['TID'] ?? '';
+
         // Sécurité : si 'nom' est un tableau, on prend le premier élément ou une chaîne vide
         $nom_raw = $e['nom'] ?? $tid;
         $nom = htmlspecialchars(is_array($nom_raw) ? reset($nom_raw) : $nom_raw);
-        
+
         // Sécurité pour l'icône
-        $icon_raw = $e['ExportName'] ?? $e['IconExportName'] ?? 'default';
+        $icon_raw = $e['IconExportName'] ?? $e['ExportName'] ?? 'default';
         if (is_array($icon_raw)) {
             $icon_raw = reset($icon_raw);
         }
         $icon = htmlspecialchars($icon_raw);
-        
+
         // Sécurité pour le Type
         $type_raw = $e['Type'] ?? 'Inconnu';
         $type = htmlspecialchars(is_array($type_raw) ? implode(', ', $type_raw) : $type_raw);
-        
-        $lvl = (int)($e['niveau_actuel'] ?? 0);
-        $max_lvl = (int)($e['niveau_max'] ?? 10);
-        
-        // Récupération du tableau des coûts pour cette gravure
+
+        $niv     = (int)($e['niveau_actuel'] ?? 0);
+        $max     = (int)($e['niveau_max'] ?? 10);
+        $is_maxed = ($niv >= $max);
+
+        // Coûts en Jetons de recherche, indexés par palier de qualité : [1 => 50, 2 => 120, ...]
         $costs = $e['costs'] ?? [];
-        
-        // Calcul du coût pour le niveau suivant
-        $next_lvl = $lvl + 1;
-        $next_cost = isset($costs[$next_lvl]) ? $costs[$next_lvl] : null;
+
+        $next_lvl  = $niv + 1;
+        $next_cost = $costs[$next_lvl] ?? null;
         $cost_display = ($next_cost !== null) ? $next_cost : "Max";
-        
-        // Création d'un ID valide pour le HTML
-        $safe_id = "eng-" . preg_replace('/[^a-zA-Z0-9]/', '', $tid);
-        
-        $display_text = ($lvl === 0) ? "Non débloqué" : "Niveau " . $lvl;
-        $btn_text = ($lvl === 0) ? "Débloquer" : "Améliorer";
-        
-        echo "
-        <div class='unit-card' id='card-{$safe_id}' data-tid='{$tid}' style='border-top: 3px solid {$cat_color}; display: flex; flex-direction: column; justify-content: space-between;'>
-            
-            <div>
-                <div class='unit-img-wrapper' style='background: rgba(0,0,0,0.2); border-radius: 8px; padding: 15px; margin-bottom: 10px; display: flex; justify-content: center;'>
-                    <img class='img-unit' src='images/engravings/{$icon}.png' alt='{$nom}' onerror=\"this.src='images/engravings/{$icon}.webp'\" style='max-width: 80px;'>
-                </div>
 
-                <div class='unit-details' style='display: flex; flex-direction: column; width: 100%; text-align: center;'>
-                    <div class='unit-header' style='margin-bottom: 15px;'>
-                        <span class='unit-name' style='font-weight: bold; font-size: 1.1em; color: #ffffff; display: block; margin-bottom: 5px;'>{$nom}</span>
-                        <span style='font-size: 0.85em; color: #bdc3c7; background: rgba(255,255,255,0.1); padding: 2px 8px; border-radius: 12px;'>Type : {$type}</span>
-                        <span class='lvl-display' id='lvl-{$safe_id}' style='color: #1abc9c; font-weight: bold; display: block; margin-top: 10px; font-size: 1.1em;'>
-                            {$display_text}
-                        </span>
-                    </div>
-                </div>
+        // Création d'un ID valide pour le HTML, basé sur l'id numérique (utilisé pour l'upgrade)
+        $safe_id = "eng-" . preg_replace('/[^a-zA-Z0-9]/', '', $tid) . "-{$id_engraving}";
+
+        $display_text = ($niv === 0) ? "Non débloqué" : "Niveau {$niv} / {$max}";
+        $btn_text = $is_maxed ? "Max !" : (($niv === 0) ? "Débloquer" : "Améliorer");
+
+        echo "
+        <div class='troop-card' id='card-{$safe_id}' data-tid='{$tid}' data-id-engraving='{$id_engraving}' style='border-top: 3px solid {$cat_color};'>
+            <div class='troop-card-visual'>
+                <img class='troop-card-img' src='images/engravings/{$icon}.png' alt='{$nom}' onerror=\"this.src='images/engravings/{$icon}.webp'\">
             </div>
 
-            <div style='margin-top: auto;'>
-                
-                <div style='display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; background: rgba(0,0,0,0.15); padding: 6px 10px; border-radius: 4px;'>
-                    <div style='display: flex; align-items: center; gap: 6px;'>
-                        <img src='images/default.png' alt='Token' style='width: 18px; height: 18px;' onerror=\"this.src='images/engravings/Epic_research_token.webp'\">
-                        <span style='font-size: 0.85em; color: #bdc3c7;'>Coût suiv. :</span>
-                        <span class='cost-value' id='cost-{$safe_id}' data-costs='".json_encode($costs)."' style='color: #f1c40f; font-weight: bold; font-size: 0.95em;'>{$cost_display}</span>
-                    </div>
-                    
-                    <button onclick=\"toggleCostTable('{$safe_id}')\" style='background: none; border: none; color: #bdc3c7; cursor: pointer; font-size: 1em; padding: 2px;' id='chevron-{$safe_id}' title='Afficher le tableau des coûts'>
-                        🔽
-                    </button>
-                </div>
+            <div class='troop-card-info'>
+                <span class='troop-card-name'>{$nom}</span>
+                <span style='font-size: 0.8em; color: #bdc3c7; background: rgba(255,255,255,0.1); padding: 2px 8px; border-radius: 12px;'>Type : {$type}</span>
+                <span class='troop-card-level' id='lvl-{$safe_id}'>{$display_text}</span>
+            </div>";
 
-                <div class='building-action'>
-                    <button class='btn-upgrade' 
-                            onclick=\"triggerUpgradeEngraving('{$tid}', '{$safe_id}', {$max_lvl})\"
-                            style=\"padding: 8px 15px; background: {$cat_color}; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; width: 100%; transition: background 0.2s;\">
-                        <span class='btn-text'>{$btn_text}</span>
-                    </button>
-                </div>
+        if (!$is_maxed) {
+            echo "
+            <div class='troop-card-costs'>
+                <span class='troop-cost-item'>
+                    <img class='troop-cost-icon' src='images/engravings/Epic_research_token.webp' alt='Jetons de recherche' onerror=\"this.src='images/default.png'\">
+                    <span class='cost-value' id='cost-{$safe_id}' data-costs='" . htmlspecialchars(json_encode($costs)) . "'>{$cost_display}</span>
+                    <span style='font-weight:400; color:#bdc3c7;'>Jetons de recherche</span>
+                </span>
+            </div>";
+        }
 
-                <div id='table-cost-{$safe_id}' style='display: none; margin-top: 12px; background: rgba(0,0,0,0.3); border-radius: 4px; padding: 8px; max-height: 180px; overflow-y: auto; text-align: left;'>
-                    <table style='width: 100%; border-collapse: collapse; font-size: 0.8em; color: #ecf0f1;'>
-                        <thead>
-                            <tr style='border-bottom: 1px solid rgba(255,255,255,0.15); text-align: left;'>
-                                <th style='padding: 4px 2px;'>Niveau</th>
-                                <th style='padding: 4px 2px;'>Jetons</th>
-                                <th style='padding: 4px 2px; text-align: right;'>Statut</th>
-                            </tr>
-                        </thead>
-                        <tbody>";
-                        foreach ($costs as $q_lvl => $tokens) {
-                            $status = "";
-                            $row_style = "";
-                            
-                            if ($q_lvl <= $lvl) {
-                                $status = "✅ Acquis";
-                                $row_style = "opacity: 0.4; color: #95a5a6;";
-                            } elseif ($q_lvl === $lvl + 1) {
-                                $status = "⏳ Suivant";
-                                $row_style = "background: rgba(241, 196, 15, 0.15); color: #f1c40f; font-weight: bold;";
-                            } else {
-                                $status = "🔒 Bloqué";
-                            }
-
-                            echo "
-                            <tr style='{$row_style} border-bottom: 1px solid rgba(255,255,255,0.05);'>
-                                <td style='padding: 5px 2px;'>Niv. {$q_lvl}</td>
-                                <td style='padding: 5px 2px; display: flex; align-items: center; gap: 4px;'>
-                                    <img src='images/default.png' alt='' style='width: 12px; height: 12px;'> {$tokens}
-                                </td>
-                                <td class='status-cell' style='padding: 5px 2px; text-align: right;'>{$status}</td>
-                            </tr>";
-                        }
+        $disabled = $is_maxed ? "disabled" : "";
         echo "
-                        </tbody>
-                    </table>
-                </div>
+            <div class='troop-card-action'>
+                <button class='btn-upgrade' {$disabled}
+                        onclick=\"triggerUpgradeEngraving({$id_engraving}, '{$safe_id}', {$max})\">
+                    <span class='btn-text'>{$btn_text}</span>
+                </button>
+            </div>";
 
-            </div>
+        if (!empty($costs)) {
+            echo "
+            <button type='button' class='engraving-costs-toggle' onclick=\"toggleCostTable('{$safe_id}')\" id='chevron-{$safe_id}'>
+                Détail des coûts <span class='chevron-icon'>🔽</span>
+            </button>
+            <div id='table-cost-{$safe_id}' class='engraving-costs-table'>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Niveau</th>
+                            <th>Jetons</th>
+                            <th style='text-align:right;'>Statut</th>
+                        </tr>
+                    </thead>
+                    <tbody>";
+
+            foreach ($costs as $q_lvl => $tokens) {
+                if ($q_lvl <= $niv) {
+                    $status = "✅ Acquis";
+                    $row_class = "cost-row-done";
+                } elseif ($q_lvl == $niv + 1) {
+                    $status = "⏳ Suivant";
+                    $row_class = "cost-row-next";
+                } else {
+                    $status = "🔒 Bloqué";
+                    $row_class = "";
+                }
+
+                echo "
+                        <tr class='{$row_class}'>
+                            <td>Niv. {$q_lvl}</td>
+                            <td>{$tokens}</td>
+                            <td class='status-cell' style='text-align:right;'>{$status}</td>
+                        </tr>";
+            }
+
+            echo "
+                    </tbody>
+                </table>
+            </div>";
+        }
+
+        echo "
         </div>";
     }
+
     echo "</div>";
+}
+/* ==========================================================================
+   TABLEAU DE BORD PRINCIPAL — Cartes "graph-card" façon ARCTracker
+   ========================================================================== */
+
+/**
+ * Rendu du Tableau de Bord principal (onglet "Dashboard") : une grille de
+ * "graph-card" résumant la progression des grandes catégories du jeu.
+ *
+ * $stats_buildings et $stats_troupes attendent un tableau ['current' => int, 'max' => int, 'percent' => float]
+ * (ex. retour de getCategoryStats()).
+ */
+function renderMainDashboard($stats_buildings, $stats_troupes, $chefs_debloques, $chefs_total) {
+    $chefs_percent = ($chefs_total > 0) ? round(($chefs_debloques / $chefs_total) * 100) : 0;
+
+    echo "
+    <div class='dashboard-container'>
+        <h2>Tableau de Bord</h2>
+        <div class='overview-cards-grid'>";
+
+    echo renderOverviewCard(
+        '🏗️',
+        'Bâtiments',
+        $stats_buildings['current'],
+        $stats_buildings['max'],
+        $stats_buildings['percent'],
+        round($stats_buildings['percent']) . '% des niveaux construits',
+        'Building-Ressource'
+    );
+
+    echo renderOverviewCard(
+        '⚔️',
+        'Troupes',
+        $stats_troupes['current'],
+        $stats_troupes['max'],
+        $stats_troupes['percent'],
+        round($stats_troupes['percent']) . '% de progression',
+        'Character-Troop'
+    );
+
+    echo renderOverviewCard(
+        '🎖️',
+        'Chefs débloqués',
+        $chefs_debloques,
+        $chefs_total,
+        $chefs_percent,
+        "{$chefs_debloques} / {$chefs_total} officiers débloqués",
+        'Character-Leader'
+    );
+
+    // Capacité de canonnière : fonctionnalité pas encore développée en base,
+    // la carte est affichée en avance (grisée, non cliquable) pour préparer le terrain.
+    echo renderOverviewCard(
+        '🚤',
+        'Capacité de canonnière',
+        0,
+        0,
+        0,
+        'Bientôt disponible',
+        null,
+        true
+    );
+
+    echo "
+        </div>
+    </div>";
+}
+
+/**
+ * Construit une "graph-card" individuelle du Tableau de Bord.
+ * Si $target_tab est fourni (et la carte non désactivée), un clic sur la carte
+ * navigue directement vers l'onglet correspondant (showTab côté JS).
+ */
+function renderOverviewCard($icon, $title, $current, $max, $percent, $subtitle, $target_tab = null, $disabled = false) {
+    $disabled_class = $disabled ? ' disabled' : '';
+    $onclick_attr   = ($target_tab && !$disabled) ? " onclick=\"showTab('{$target_tab}')\"" : "";
+    $soon_badge     = $disabled ? "<span class='badge-soon'>Bientôt</span>" : "";
+    $value_display  = $disabled ? "—" : "{$current}<span class='value-max'> / {$max}</span>";
+    $percent_safe   = max(0, min(100, (float)$percent));
+
+    return "
+        <div class='overview-card{$disabled_class}'{$onclick_attr}>
+            <div class='overview-card-header'>
+                <div class='overview-card-icon'>{$icon}</div>
+                <div class='overview-card-title'>" . htmlspecialchars($title) . "</div>
+                {$soon_badge}
+            </div>
+            <div class='overview-card-value'>{$value_display}</div>
+            <div class='overview-progress-track'>
+                <div class='overview-progress-fill' style='width: {$percent_safe}%;'></div>
+            </div>
+            <div class='overview-card-sub'>" . htmlspecialchars($subtitle) . "</div>
+        </div>";
+}
+
+/**
+ * Rendu d'une page "mini-onglets" (cartes de navigation) pour les menus
+ * possédant un sous-menu (Bâtiments, Armée, Gravures). Chaque carte envoie
+ * directement vers le sous-onglet correspondant via showTab().
+ *
+ * $items est un tableau de ['label' => string, 'tab' => string, 'icon' => string (optionnel), 'sub' => string (optionnel)]
+ */
+function renderCategoryNav($title, $items) {
+    echo "<div class='category-nav-wrapper'>";
+    echo "<h2>" . htmlspecialchars($title) . "</h2>";
+    echo "<div class='category-nav-grid'>";
+
+    foreach ($items as $item) {
+        $label = htmlspecialchars($item['label'] ?? '');
+        $sub   = htmlspecialchars($item['sub'] ?? '');
+        $tab   = $item['tab'] ?? '';
+        $icon  = $item['icon'] ?? '📁';
+
+        echo "
+        <div class='category-nav-card' onclick=\"showTab('{$tab}')\">
+            <div class='category-nav-card-main'>
+                <div class='overview-card-icon'>{$icon}</div>
+                <div>
+                    <div class='category-nav-card-label'>{$label}</div>";
+        if ($sub !== '') {
+            echo "<div class='category-nav-card-sub'>{$sub}</div>";
+        }
+        echo "
+                </div>
+            </div>
+            <div class='category-nav-card-arrow'>›</div>
+        </div>";
+    }
+
+    echo "</div></div>";
 }

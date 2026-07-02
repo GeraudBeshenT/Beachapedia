@@ -38,7 +38,7 @@ $niveau_max_qg = (int)$stmt_max->fetchColumn();
         <img src="images/<?php echo $qg_image_name; ?>.png" width="80">
         <div>
             <h3 style="margin:0">
-                Palais Niveau <?php echo $qg; ?> 
+                Quartier général niveau <?php echo $qg; ?> 
                 <span style="font-size: 0.8em; color: #3498db;">(Niv. Joueur: <?php echo $niveau_joueur; ?>)</span>
             </h3>
             <p style="margin:5px 0 0 0; font-size: 0.9em; color: #7f8c8d;">XP Total : <?php echo $xp_actuelle; ?></p>
@@ -61,6 +61,6 @@ $niveau_max_qg = (int)$stmt_max->fetchColumn();
             Passer au niveau <?php echo $next_lvl; ?>
         </button>
     <?php else: ?>
-        <p style="text-align:center; color: #27ae60;">Palais au niveau maximum (<?php echo $niveau_max_qg; ?>)</p>
+        <p style="text-align:center; color: #27ae60;">Quartier général au niveau maximum (<?php echo $niveau_max_qg; ?>)</p>
     <?php endif; ?>
 </div>
