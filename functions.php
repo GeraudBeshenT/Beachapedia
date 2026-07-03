@@ -82,7 +82,7 @@ function renderBuildingsTable($buildings_list) {
             $inst     = (int)($b['id_instance'] ?? 1);
             $niv      = (int)($b['niveau_actuel'] ?? 0);
             $max      = (int)($b['niveau_max'] ?? 1);
-            $img      = $b['ExportName'] ?? 'default';
+            $img      = $b['ExportName'] ?? 'default-building';
             $debloque = (int)($b['Debloque'] ?? 0);
             $is_maxed = ($niv >= $max);
 
@@ -103,7 +103,7 @@ function renderBuildingsTable($buildings_list) {
             echo "
             <div class='building-card' id='card-{$safe_id}' data-tid='{$tid}' data-instance='{$inst}'>
                 <div class='building-card-visual'>
-                    <img class='building-card-img' src='images/{$img}.WEBP' alt='{$nom}' onerror=\"this.src='images/default.png'\">
+                    <img class='building-card-img' src='images/{$img}.WEBP' alt='{$nom}' onerror=\"this.src='images/default-building.png'\">
                 </div>
 
                 <div class='building-card-info'>

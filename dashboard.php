@@ -98,7 +98,7 @@ $bb_languages = [
                     <span class="sidebar-logo-text">Beachapedia</span>
                 </a>
                 <button type="button" class="sidebar-toggle" id="sidebarToggle" onclick="toggleSidebar()" aria-label="Réduire / agrandir le menu">
-                    <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12.5 4l-6 6 6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    <img src="images/icons/gacha_info_icon.png" style="width: 25px;"/>
                 </button>
             </div>
 
