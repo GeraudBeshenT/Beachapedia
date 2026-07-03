@@ -11,4 +11,3 @@
     <script src="script.js?v=<?php echo time(); ?>"></script>
 </head>
 <body>
-    <h1>Beachapedia : Base de <?php echo htmlspecialchars($_SESSION['player_nom']); ?></h1>

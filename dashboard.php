@@ -61,67 +61,158 @@ window.onload = function() {
 };
 </script>
 
+<?php
+// Liste des langues disponibles (basée sur les 20 locales du texts.csv de Boom Beach).
+// Codes/drapeaux à ajuster une fois le vrai fichier de traduction branché.
+$bb_languages = [
+    ['code' => 'fr',    'flag' => '🇫🇷', 'label' => 'Français'],
+    ['code' => 'en',    'flag' => '🇬🇧', 'label' => 'English'],
+    ['code' => 'de',    'flag' => '🇩🇪', 'label' => 'Deutsch'],
+    ['code' => 'es',    'flag' => '🇪🇸', 'label' => 'Español'],
+    ['code' => 'es-mx', 'flag' => '🇲🇽', 'label' => 'Español (Latam)'],
+    ['code' => 'it',    'flag' => '🇮🇹', 'label' => 'Italiano'],
+    ['code' => 'pt-br', 'flag' => '🇧🇷', 'label' => 'Português (Brasil)'],
+    ['code' => 'nl',    'flag' => '🇳🇱', 'label' => 'Nederlands'],
+    ['code' => 'pl',    'flag' => '🇵🇱', 'label' => 'Polski'],
+    ['code' => 'ru',    'flag' => '🇷🇺', 'label' => 'Русский'],
+    ['code' => 'tr',    'flag' => '🇹🇷', 'label' => 'Türkçe'],
+    ['code' => 'ar',    'flag' => '🇸🇦', 'label' => 'العربية'],
+    ['code' => 'zh-cn', 'flag' => '🇨🇳', 'label' => '简体中文'],
+    ['code' => 'zh-tw', 'flag' => '🇹🇼', 'label' => '繁體中文'],
+    ['code' => 'ja',    'flag' => '🇯🇵', 'label' => '日本語'],
+    ['code' => 'ko',    'flag' => '🇰🇷', 'label' => '한국어'],
+    ['code' => 'th',    'flag' => '🇹🇭', 'label' => 'ไทย'],
+    ['code' => 'vi',    'flag' => '🇻🇳', 'label' => 'Tiếng Việt'],
+    ['code' => 'no',    'flag' => '🇳🇴', 'label' => 'Norsk'],
+    ['code' => 'fi',    'flag' => '🇫🇮', 'label' => 'Suomi'],
+];
+?>
+
 <div class="main-layout">
     <nav class="sidebar">
-        <div class="sidebar-scroll">
-            <div class="sidebar-title">MENU</div>
+        <div class="sidebar-inner">
 
-            <div class="menu-group">
-                <div class="menu-header dashboard-btn" onclick="showTab('Dashboard')">Dashboard</div>
-            </div>
-
-            <div class="menu-group">
-                <div class="menu-header" onclick="openCategoryTab(this, 'Building-Overview')">Bâtiments ▼</div>
-                <ul class="submenu" style="display: none;">
-                    <li><button class="nav-button" onclick="showTab('Building-Ressource')">Économie</button></li>
-                    <li><button class="nav-button" onclick="showTab('Building-Defense')">Défense</button></li>
-                    <li><button class="nav-button" onclick="showTab('Building-Army')">Renfort</button></li>
-                </ul>
+            <div class="sidebar-header">
+                <a href="dashboard.php" class="sidebar-logo">
+                    <img src="images/Beachapedia.webp" alt="Beachapedia" class="sidebar-logo-img" onerror="this.style.display='none'">
+                    <span class="sidebar-logo-text">Beachapedia</span>
+                </a>
+                <button type="button" class="sidebar-toggle" id="sidebarToggle" onclick="toggleSidebar()" aria-label="Réduire / agrandir le menu">
+                    <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12.5 4l-6 6 6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
             </div>
 
-            <div class="menu-group">
-                <div class="menu-header" onclick="openCategoryTab(this, 'Army-Overview')">Armée ▼</div>
-                <ul class="submenu" style="display: none;">
-                    <li><button class="nav-button" onclick="showTab('Character-Troop')">Troupes</button></li>
-                    <li><button class="nav-button" onclick="showTab('Character-Hero')">Héros</button></li>
-                    <li><button class="nav-button" onclick="showTab('Character-Proto')">Proto-troupes</button></li>
-                    <li><button class="nav-button" onclick="showTab('Character-Leader')">Chef de bataillon</button></li>
-                </ul>
-            </div>
+            <div class="sidebar-scroll">
+                <div class="sidebar-section">
 
-            <div class="menu-group">
-                <div class="menu-header dashboard-btn" onclick="showTab('Tribes')">Tribus</div>
-            </div>
-            <div class="menu-group">
-                <div class="menu-header dashboard-btn" onclick="showTab('Archipel')">Archipel</div>
-            </div>
-            <div class="menu-group">
-                <div class="menu-header dashboard-btn" onclick="showTab('Monument')">Monument mystique</div>
-            </div>
-            <div class="menu-group">
-                <div class="menu-header dashboard-btn" onclick="showTab('BoomPass')">Boom Pass</div>
-            </div>
-            <div class="menu-group">
-                <div class="menu-header" onclick="openCategoryTab(this, 'Engraving-Overview')">Gravures ▼</div>
-                <ul class="submenu" style="display: none;">
-                    <li><button class="nav-button" onclick="showTab('Engraving-Offensive')">Offensive</button></li>
-                    <li><button class="nav-button" onclick="showTab('Engraving-Defensive')">Defensive</button></li>
-                </ul>
-            </div>
-        </div>
+                    <div class="menu-group">
+                        <div class="menu-header dashboard-btn" onclick="showTab('Dashboard')" data-tooltip="Dashboard">
+                            <span class="menu-icon"><svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="2.5" y="2.5" width="6" height="6" rx="1.2" stroke="currentColor" stroke-width="1.6"/><rect x="11.5" y="2.5" width="6" height="6" rx="1.2" stroke="currentColor" stroke-width="1.6"/><rect x="2.5" y="11.5" width="6" height="6" rx="1.2" stroke="currentColor" stroke-width="1.6"/><rect x="11.5" y="11.5" width="6" height="6" rx="1.2" stroke="currentColor" stroke-width="1.6"/></svg></span>
+                            <span class="menu-label">Dashboard</span>
+                        </div>
+                    </div>
 
-        <div class="sidebar-profile">
-            <div class="profile-btn" onclick="toggleProfileMenu(event)">
-                <div class="profile-avatar">
-                    <?php echo htmlspecialchars(strtoupper(substr($_SESSION['player_nom'], 0, 1))); ?>
-                    <img src="images/icons/gacha_info_icon.png" class="badge-icon" alt="" onerror="this.style.display='none'">
+                    <div class="menu-group">
+                        <div class="menu-header" onclick="openCategoryTab(this, 'Building-Overview')" data-tooltip="Bâtiments">
+                            <span class="menu-icon"><svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 17.5V6l7-3.5 7 3.5v11.5" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M3 17.5h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><rect x="8" y="10.5" width="4" height="7" stroke="currentColor" stroke-width="1.6"/><path d="M6.5 8h.01M13.5 8h.01" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
+                            <span class="menu-label">Bâtiments</span>
+                            <span class="menu-caret">▾</span>
+                        </div>
+                        <ul class="submenu" style="display: none;">
+                            <li><button class="nav-button" onclick="showTab('Building-Ressource')">Économie</button></li>
+                            <li><button class="nav-button" onclick="showTab('Building-Defense')">Défense</button></li>
+                            <li><button class="nav-button" onclick="showTab('Building-Army')">Renfort</button></li>
+                        </ul>
+                    </div>
+
+                    <div class="menu-group">
+                        <div class="menu-header" onclick="openCategoryTab(this, 'Army-Overview')" data-tooltip="Armée">
+                            <span class="menu-icon"><svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M10 2.5l6 2.7v4.3c0 4-2.6 6.9-6 8-3.4-1.1-6-4-6-8V5.2L10 2.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M10 6v6.5M7.3 9.2h5.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
+                            <span class="menu-label">Armée</span>
+                            <span class="menu-caret">▾</span>
+                        </div>
+                        <ul class="submenu" style="display: none;">
+                            <li><button class="nav-button" onclick="showTab('Character-Troop')">Troupes</button></li>
+                            <li><button class="nav-button" onclick="showTab('Character-Hero')">Héros</button></li>
+                            <li><button class="nav-button" onclick="showTab('Character-Proto')">Proto-troupes</button></li>
+                            <li><button class="nav-button" onclick="showTab('Character-Leader')">Chef de bataillon</button></li>
+                        </ul>
+                    </div>
+
+                    <div class="menu-group">
+                        <div class="menu-header dashboard-btn" onclick="showTab('Tribes')" data-tooltip="Tribus">
+                            <span class="menu-icon"><svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="7" cy="6.5" r="2.3" stroke="currentColor" stroke-width="1.6"/><circle cx="14" cy="7.5" r="1.9" stroke="currentColor" stroke-width="1.6"/><path d="M2.5 16.2c.5-2.8 2.3-4.3 4.5-4.3s4 1.5 4.5 4.3M11.8 12.3c1.9.1 3.4 1.5 3.8 3.9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
+                            <span class="menu-label">Tribus</span>
+                        </div>
+                    </div>
+
+                    <div class="menu-group">
+                        <div class="menu-header dashboard-btn" onclick="showTab('Archipel')" data-tooltip="Archipel">
+                            <span class="menu-icon"><svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2.5 13c1.5-2 3-2 4.5-.8 1.7 1.3 3.3 1.3 5-.2 1.3-1.2 3-1.2 5.5.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M9 3l1.6 3.4L14 8l-3.4 1.6L9 13l-1.6-3.4L4 8l3.4-1.6L9 3z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg></span>
+                            <span class="menu-label">Archipel</span>
+                        </div>
+                    </div>
+
+                    <div class="menu-group">
+                        <div class="menu-header dashboard-btn" onclick="showTab('Monument')" data-tooltip="Monument mystique">
+                            <span class="menu-icon"><svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M8.5 2.5h3l1.5 10h-6l1.5-10z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M6 17.5h8M6.8 15h6.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
+                            <span class="menu-label">Monument mystique</span>
+                        </div>
+                    </div>
+
+                    <div class="menu-group">
+                        <div class="menu-header dashboard-btn" onclick="showTab('BoomPass')" data-tooltip="Boom Pass">
+                            <span class="menu-icon"><svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2.5 8.3a1.7 1.7 0 000 3.4v3.3c0 .7.6 1.2 1.2 1.2h12.6c.7 0 1.2-.5 1.2-1.2v-3.3a1.7 1.7 0 010-3.4V5c0-.7-.5-1.2-1.2-1.2H3.7c-.6 0-1.2.5-1.2 1.2v3.3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 4v12" stroke="currentColor" stroke-width="1.5" stroke-dasharray="1.6 2" stroke-linecap="round"/></svg></span>
+                            <span class="menu-label">Boom Pass</span>
+                        </div>
+                    </div>
+
+                    <div class="menu-group">
+                        <div class="menu-header" onclick="openCategoryTab(this, 'Engraving-Overview')" data-tooltip="Gravures">
+                            <span class="menu-icon"><svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M15.5 3.2c-4.8.3-9 3.6-10.8 8.1L3.2 16l4.7-1.5c4.5-1.8 7.8-6 8.1-10.8l-.5-.5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M7 13l6-6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>
+                            <span class="menu-label">Gravures</span>
+                            <span class="menu-caret">▾</span>
+                        </div>
+                        <ul class="submenu" style="display: none;">
+                            <li><button class="nav-button" onclick="showTab('Engraving-Offensive')">Offensive</button></li>
+                            <li><button class="nav-button" onclick="showTab('Engraving-Defensive')">Defensive</button></li>
+                        </ul>
+                    </div>
                 </div>
-                <span class="profile-name"><?php echo htmlspecialchars($_SESSION['player_nom']); ?></span>
+            </div>
 
-                <div class="profile-dropdown" id="profileDropdown">
-                    <a href="deconnexion.php">🚪 Déconnexion</a>
+            <div class="sidebar-footer">
+                <div class="lang-select" id="langSelect">
+                    <button type="button" class="lang-btn" onclick="toggleLangMenu(event)" data-tooltip="Langue">
+                        <span class="lang-flag" id="currentLangFlag">🇫🇷</span>
+                        <span class="lang-label" id="currentLangLabel">Français</span>
+                        <span class="lang-caret">▾</span>
+                    </button>
+                    <div class="lang-dropdown" id="langDropdown">
+                        <?php foreach ($bb_languages as $lg): ?>
+                        <button type="button" class="lang-option<?php echo $lg['code'] === 'fr' ? ' selected' : ''; ?>" data-lang="<?php echo $lg['code']; ?>" data-flag="<?php echo $lg['flag']; ?>" data-label="<?php echo htmlspecialchars($lg['label']); ?>" onclick="selectLang(this)">
+                            <span class="lang-flag"><?php echo $lg['flag']; ?></span>
+                            <span><?php echo htmlspecialchars($lg['label']); ?></span>
+                        </button>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+
+                <div class="sidebar-profile">
+                    <div class="profile-btn" onclick="toggleProfileMenu(event)" data-tooltip="<?php echo htmlspecialchars($_SESSION['player_nom']); ?>">
+                        <div class="profile-avatar">
+                            <?php echo htmlspecialchars(strtoupper(substr($_SESSION['player_nom'], 0, 1))); ?>
+                            <img src="images/icons/gacha_info_icon.png" class="badge-icon" alt="" onerror="this.style.display='none'">
+                        </div>
+                        <span class="profile-name"><?php echo htmlspecialchars($_SESSION['player_nom']); ?></span>
+
+                        <div class="profile-dropdown" id="profileDropdown">
+                            <a href="deconnexion.php">🚪 Déconnexion</a>
+                        </div>
+                    </div>
                 </div>
             </div>
+
         </div>
     </nav>
 

@@ -38,7 +38,26 @@ window.showTab = function(tabId) {
     if (trigger) {
         const submenu = trigger.closest('.submenu');
         if (submenu) submenu.style.display = 'block';
+        const group = trigger.closest('.menu-group');
+        if (group) group.classList.add('open');
     }
+
+    // --- Mise à jour de l'état visuel "actif" dans la sidebar ---
+    document.querySelectorAll('.menu-header').forEach(el => {
+        el.classList.remove('active');
+        el.classList.remove('active-parent');
+    });
+    document.querySelectorAll('.nav-button').forEach(el => el.classList.remove('active-tab'));
+
+    if (trigger) {
+        trigger.classList.add('active-tab');
+        const parentHeader = trigger.closest('.menu-group')?.querySelector('.menu-header');
+        if (parentHeader) parentHeader.classList.add('active-parent');
+    }
+    const directHeader = document.querySelector(`.menu-header.dashboard-btn[onclick*="showTab('${tabId}')"]`);
+    if (directHeader) directHeader.classList.add('active');
+    const overviewHeader = document.querySelector(`.menu-header[onclick*="openCategoryTab(this, '${tabId}')"]`);
+    if (overviewHeader) overviewHeader.classList.add('active-parent');
 };
 
 // Navigation clavier/souris précédent-suivant du navigateur, ou édition manuelle de l'URL :
@@ -429,7 +448,10 @@ window.updateMainRow = function(selectElement, safeId) {
 // Gestion de l'ouverture des sous-menus accordéon
 window.toggleSubMenu = function(element) {
     const submenu = element.nextElementSibling;
-    submenu.style.display = (submenu.style.display === "none" || submenu.style.display === "") ? "block" : "none";
+    const group = element.closest('.menu-group');
+    const isOpen = submenu.style.display === "block";
+    submenu.style.display = isOpen ? "none" : "block";
+    if (group) group.classList.toggle('open', !isOpen);
 };
 
 // Clic sur un menu-header possédant un sous-menu (Bâtiments, Armée, Gravures) :
@@ -438,8 +460,79 @@ window.toggleSubMenu = function(element) {
 window.openCategoryTab = function(element, tabId) {
     const submenu = element.nextElementSibling;
     if (submenu) submenu.style.display = "block";
+    const group = element.closest('.menu-group');
+    if (group) group.classList.add('open');
     showTab(tabId);
 };
+
+// ==========================================================================
+// SIDEBAR RÉTRACTABLE (façon ARCTracker.io)
+// ==========================================================================
+window.toggleSidebar = function() {
+    const layout = document.querySelector('.main-layout');
+    if (!layout) return;
+    const collapsed = layout.classList.toggle('sidebar-collapsed');
+    try {
+        localStorage.setItem('sidebarCollapsed', collapsed ? '1' : '0');
+    } catch (e) {
+        console.warn("localStorage indisponible :", e);
+    }
+};
+
+document.addEventListener('DOMContentLoaded', function() {
+    const layout = document.querySelector('.main-layout');
+    if (!layout) return;
+    try {
+        if (localStorage.getItem('sidebarCollapsed') === '1') {
+            layout.classList.add('sidebar-collapsed');
+        }
+    } catch (e) {
+        console.warn("localStorage indisponible :", e);
+    }
+});
+
+// ==========================================================================
+// SÉLECTEUR DE LANGUE (sidebar)
+// ==========================================================================
+window.toggleLangMenu = function(event) {
+    event.stopPropagation();
+    const dropdown = document.getElementById('langDropdown');
+    if (dropdown) dropdown.classList.toggle('open');
+};
+
+window.selectLang = function(element) {
+    const flag = element.getAttribute('data-flag');
+    const label = element.getAttribute('data-label');
+    const code = element.getAttribute('data-lang');
+
+    const flagEl = document.getElementById('currentLangFlag');
+    const labelEl = document.getElementById('currentLangLabel');
+    if (flagEl) flagEl.textContent = flag;
+    if (labelEl) labelEl.textContent = label;
+
+    document.querySelectorAll('.lang-option').forEach(opt => opt.classList.remove('selected'));
+    element.classList.add('selected');
+
+    const dropdown = document.getElementById('langDropdown');
+    if (dropdown) dropdown.classList.remove('open');
+
+    try {
+        localStorage.setItem('siteLang', code);
+    } catch (e) {
+        console.warn("localStorage indisponible :", e);
+    }
+
+    // TODO : brancher ici le vrai système de traduction (texts.csv de Boom Beach)
+    // une fois que la structure multilingue du back-end sera prête.
+};
+
+// Ferme le menu déroulant des langues si on clique ailleurs sur la page
+document.addEventListener('click', function(e) {
+    const dropdown = document.getElementById('langDropdown');
+    if (dropdown && dropdown.classList.contains('open') && !e.target.closest('.lang-select')) {
+        dropdown.classList.remove('open');
+    }
+});
 
 // Ouverture/fermeture du petit menu déroulant du profil (bas de la sidebar)
 window.toggleProfileMenu = function(event) {
