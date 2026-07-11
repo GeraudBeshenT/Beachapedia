@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Bangers&display=swap');
 body {
     font-family: sans-serif;
     background: #3C7891;
@@ -273,27 +274,14 @@ body {
 
 
 
-
-
-        /* Import de la police si pas déjà fait dans header.php */
-@import url('https://fonts.googleapis.com/css2?family=Bangers&display=swap');
-
 /* Layout Principal en Grid */
 .main-layout {
     display: grid;
-    grid-template-columns: minmax(15vw, 250px) 1fr; /* Le menu fait au moins 15% de la largeur de l'écran (15vw) */
-    min-height: 100vh;
-    width: 100%;
+    grid-template-columns: 250px 1fr; /* Sidebar et contenu (surchargé plus bas) */
 }
 
-/* Menu latéral */
-.sidebar {
-    background-color: #3d4554;
-    width: 100%;
-    padding: 20px;
-    box-sizing: border-box;
-    border-right: 2px solid rgba(255, 255, 255, 0.1);
-}
+/* Menu latéral (styles historiques conservés pour .sidebar-title ci-dessous ;
+   le positionnement/habillage réel de .sidebar est défini plus bas, section ARCTracker) */
 
 /* Zone de contenu à droite */
 .main-content {
@@ -402,19 +390,24 @@ body {
 
 /* Contenu */
 h2{
-    background-color: #3C7891;
-    font-family: Bangers;
-    font-size: 2.5rem;
-    letter-spacing: 3px;
-    color: White;
-    text-shadow: 3px 3px 1px black, 3px 0 1px black, 0 3px 1px black;
     padding: 10px;
-    margin :0;
+    font-size: 36px;
+    font-family: Bangers;
+    letter-spacing: 2px !important;
+    color: white !important;
+    text-shadow: 1px 1px 1px black, -1px -1px 1px black, 1px -1px 1px black, -1px 1px 1px black, 0px -1px 1px black, 0px 1px 1px black, -1px 0px 1px black, 1px 0px 1px black, 0 2px 1px black, -1px 3px 1px black, 1px 3px 1px black;
+    font-weight: 300;
+    line-height: 1.25;
+    background-color: #3C7891;
+    text-align: center;
+    margin: 0 0 20px 0;
 }
 
 h3{
     text-align: center;
 }
+
+
 
 .tab-content {
     display: none;
@@ -710,6 +703,7 @@ button.btn-upgrade-talent {
     justify-content: center;
 }
 
+
 /* Carte de widget : Structure verticale stricte et alignée */
 .widget-card {
     background: #1e2b38;
@@ -837,6 +831,10 @@ button.btn-upgrade-talent {
     color: #dcdde1;
     font-family: sans-serif;
     box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+    max-width: 640px;
+    width: 100%;
+    box-sizing: border-box;
+    margin: 0 0 20px 0;
 }
     .qg-header { display: flex; align-items: center; gap: 20px; border-bottom: 1px solid #3e4a56; padding-bottom: 15px; margin-bottom: 15px; }
     .qg-cost-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 15px; }
@@ -856,7 +854,6 @@ button.btn-upgrade-talent {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
     gap: 20px;
-    padding: 20px;
 }
 
 /* Carte individuelle : contenu centré verticalement */
@@ -1363,24 +1360,6 @@ button.btn-upgrade-talent {
    PROFIL — Bouton de profil en bas de la sidebar (remplace l'ancien bandeau)
    ========================================================================== */
 
-.sidebar {
-    display: flex;
-    flex-direction: column;
-    min-height: 100%;
-}
-
-.sidebar-scroll {
-    flex: 1 1 auto;
-    overflow-y: auto;
-}
-
-.sidebar-profile {
-    margin-top: auto;
-    padding-top: 15px;
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
-    position: relative;
-}
-
 .profile-btn {
     display: flex;
     align-items: center;
@@ -1601,7 +1580,7 @@ button.btn-upgrade-talent {
 .sidebar-inner {
     display: flex;
     flex-direction: column;
-    /* height: 100%; */
+    height: 100%;
 }
 
 /* --- En-tête : logo + bouton de rétraction --- */
@@ -1633,13 +1612,15 @@ button.btn-upgrade-talent {
 }
 
 .sidebar-logo-text {
-    font-family: 'Bangers', cursive;
+    font-family: 'Bangers';
+    text-shadow: 1px 1px 1px black, -1px -1px 1px black, 1px -1px 1px black, -1px 1px 1px black, 0px -1px 1px black, 0px 1px 1px black, -1px 0px 1px black, 1px 0px 1px black, 0 2px 1px black, -1px 3px 1px black, 1px 3px 1px black;
     font-size: 1.35em;
     letter-spacing: 1px;
     color: var(--bb-white);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    
 }
 
 .sidebar-toggle {
@@ -1933,8 +1914,14 @@ button.btn-upgrade-talent {
 /* --- Profil : réintégré dans le footer sticky --- */
 .sidebar-profile { margin-top: 0; padding-top: 0; border-top: none; position: relative; }
 
-.profile-btn { width: 100%; border-radius: 10px; background: rgba(255, 255, 255, 0.045); border: 1px solid rgba(255, 255, 255, 0.08); }
-.profile-btn:hover { background: rgba(255, 255, 255, 0.08); }
+.profile-btn {
+    width: 100%;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 2px solid var(--bg-light-blue);
+    box-shadow: 0 0 10px rgba(0, 176, 191, 0.45), inset 0 0 6px rgba(0, 176, 191, 0.25);
+}
+.profile-btn:hover { background: rgba(255, 255, 255, 0.1); }
 
 @media (max-width: 900px) {
     .main-layout { grid-template-columns: var(--sidebar-w-collapsed) 1fr; }
@@ -1942,4 +1929,184 @@ button.btn-upgrade-talent {
     .lang-label, .lang-caret, .profile-name { display: none !important; }
     .sidebar-header { flex-direction: column; padding: 14px 8px; gap: 10px; }
     .menu-header, .lang-btn, .profile-btn { justify-content: center; padding: 10px; }
+}
+
+/* ==========================================================================
+   TABLEAU DE BORD — Sections groupées (Bâtiments / Armée / Gravures / Autres)
+   Chaque section a un en-tête avec % global, puis des sous-cartes dédiées.
+   ========================================================================== */
+
+.dash-section {
+    background: rgba(255, 255, 255, 0.035);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 14px;
+    padding: 18px 20px 20px;
+    margin-bottom: 22px;
+}
+
+.dash-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.dash-section-header.clickable { cursor: pointer; }
+
+.dash-section-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-family: 'Bangers', cursive;
+    font-weight: 400;
+    letter-spacing: 0.5px;
+    font-size: 1.3em;
+    color: #ecf0f1;
+        text-shadow: 1px 1px 1px black, -1px -1px 1px black, 1px -1px 1px black, -1px 1px 1px black, 0px -1px 1px black, 0px 1px 1px black, -1px 0px 1px black, 1px 0px 1px black, 0 2px 1px black, -1px 3px 1px black, 1px 3px 1px black;
+
+}
+
+.dash-section-icon { font-size: 1.1em; }
+
+.dash-section-percent {
+    font-family: 'Courier New', monospace;
+    font-weight: bold;
+    font-size: 1.4em;
+    color: #1abc9c;
+    flex-shrink: 0;
+}
+
+.dash-section-track {
+    height: 8px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 4px;
+    margin: 10px 0 16px;
+    overflow: hidden;
+}
+
+.dash-section-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #1abc9c, #16a085);
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+
+.dash-subcards-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    margin-bottom: 12px;
+    padding-top: 25px;
+}
+
+.dash-subcards-row:last-child { margin-bottom: 0; }
+
+.dash-subcard {
+    flex: 1 1 220px;
+    background: #1c2c39;
+    border: 1px solid #2c3e50;
+    border-radius: 10px;
+    padding: 14px 16px;
+    color: #dcdde1;
+    box-sizing: border-box;
+    transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.dash-subcard.clickable { cursor: pointer; }
+.dash-subcard.clickable:hover { transform: translateY(-2px); border-color: #1abc9c; }
+.dash-subcard.disabled { opacity: 0.55; }
+.dash-subcard.full-width { flex-basis: 100%; }
+
+.dash-subcard-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    gap: 8px;
+}
+
+.dash-subcard-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    font-size: 0.95em;
+    color: #ecf0f1;
+}
+
+.dash-subcard-badge {
+    background: rgba(230, 126, 34, 0.18);
+    color: #f39c12;
+    font-size: 0.7em;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 10px;
+    text-transform: uppercase;
+    flex-shrink: 0;
+}
+
+.dash-subcard-value {
+    font-family: 'Courier New', monospace;
+    font-weight: bold;
+    font-size: 1.3em;
+    color: #fff;
+    margin-bottom: 6px;
+}
+
+.dash-subcard-value .value-max {
+    font-size: 0.6em;
+    color: #8aa0b0;
+    font-weight: normal;
+}
+
+.dash-subcard-track {
+    height: 6px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-bottom: 6px;
+}
+
+.dash-subcard-fill {
+    height: 100%;
+    background: #1abc9c;
+    border-radius: 3px;
+}
+
+.dash-subcard-sub {
+    font-size: 0.78em;
+    color: #8aa0b0;
+}
+
+/* Masquage des éléments au max */
+.hide-maxed-container.maxed-hidden [data-maxed="1"] {
+    display: none !important;
+}
+
+/* ==========================================================================
+   ONGLETS VERROUILLÉS DE LA SIDEBAR (Tribus / Monument mystique / Gravures)
+   ========================================================================== */
+
+.menu-header.locked,
+.nav-button.locked {
+    opacity: 0.45;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.menu-header.locked:hover {
+    background: transparent;
+}
+
+.menu-lock {
+    font-size: 0.85em;
+    flex-shrink: 0;
+    margin-left: auto;
+    opacity: 0.8;
+}
+
+.nav-button.locked {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
 }

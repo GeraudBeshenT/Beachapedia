@@ -25,11 +25,19 @@ try {
     $stmt_unlock->execute([$new_qg]);
     $troupes = $stmt_unlock->fetchAll(PDO::FETCH_ASSOC);
 
-    $stmt_ins_unit = $pdo->prepare("INSERT IGNORE INTO progress_character (id_player, id_character, niveau, Debloque) VALUES (?, ?, 1, ?)");
+    // On vérifie l'existence AVANT d'insérer : INSERT IGNORE ne protège que s'il existe une
+    // contrainte UNIQUE sur (id_player, id_character), ce qui n'est apparemment pas le cas ici
+    // (symptôme observé : un même héros dupliqué plusieurs fois dans la liste des Héros).
+    $stmt_check_unit = $pdo->prepare("SELECT 1 FROM progress_character WHERE id_player = ? AND id_character = ? LIMIT 1");
+    $stmt_ins_unit = $pdo->prepare("INSERT INTO progress_character (id_player, id_character, niveau, Debloque) VALUES (?, ?, 1, ?)");
     foreach ($troupes as $troupe) {
         $id = $troupe['id'] ?? $troupe['ID'];
         $unlock_val = (trim($troupe['Class']) === 'Officier') ? 0 : 1;
-        $stmt_ins_unit->execute([$_SESSION['player_id'], $id, $unlock_val]);
+
+        $stmt_check_unit->execute([$_SESSION['player_id'], $id]);
+        if (!$stmt_check_unit->fetch()) {
+            $stmt_ins_unit->execute([$_SESSION['player_id'], $id, $unlock_val]);
+        }
     }
 
     // --- SECTION BÂTIMENTS (Nouvelle logique) ---

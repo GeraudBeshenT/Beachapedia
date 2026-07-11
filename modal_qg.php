@@ -18,14 +18,22 @@ $niveau_joueur = (int)($stmt_lvl->fetchColumn() ?? 1);
 // 3. Infos amélioration QG
 $next_lvl = $qg + 1;
 $stmt_next = $pdo->prepare("
-    SELECT b.BuildCostWood, b.BuildCostStone, b.BuildCostIron, 
-           b.BuildTimeD, b.BuildTimeH, b.BuildTimeM, b.BuildTimeS, t.XP 
-    FROM buildings b
-    INNER JOIN townhall_levels t ON b.Niveau = t.TownHallLevel
-    WHERE b.TID = 'TID_BUILDING_PALACE' AND b.Niveau = ?
+    SELECT BuildCostWood, BuildCostStone, BuildCostIron, 
+           BuildTimeD, BuildTimeH, BuildTimeM, BuildTimeS
+    FROM buildings
+    WHERE TID = 'TID_BUILDING_PALACE' AND Niveau = ?
 ");
 $stmt_next->execute([$next_lvl]);
 $next_info = $stmt_next->fetch(PDO::FETCH_ASSOC);
+
+// Le niveau joueur requis pour DÉCLENCHER cette amélioration se lit sur la ligne
+// du QG ACTUEL (pas celle du niveau suivant) : townhall_levels.TownHallLevel = $qg
+// donne le palier à atteindre pour pouvoir passer de $qg à $next_lvl.
+if ($next_info) {
+    $stmt_xp_req = $pdo->prepare("SELECT XP FROM townhall_levels WHERE TownHallLevel = ?");
+    $stmt_xp_req->execute([$qg]);
+    $next_info['XP'] = (int)($stmt_xp_req->fetchColumn() ?? 0);
+}
 
 // 4. Niveau max du Palais
 $stmt_max = $pdo->prepare("SELECT MAX(Niveau) FROM buildings WHERE TID = 'TID_BUILDING_PALACE'");

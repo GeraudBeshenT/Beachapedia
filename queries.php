@@ -43,108 +43,101 @@ $qg_image_name = ($qg_info) ? $qg_info['ExportName'] : 'townhall_lvl1';
  */
 function getBuildingsDisplay($pdo, $id_player, $qg) {
 
-    // 1. Bâtiments autorisés à ce QG, avec le nombre d'exemplaires (Amount) et le niveau max atteignable
-    $stmt_limits = $pdo->prepare("
-        SELECT v.TID, v.Amount, t.FR AS nom, bi.Class,
-               (SELECT MAX(Niveau) FROM buildings b WHERE b.TID = v.TID AND b.TownHallLevel <= :qg) AS niveau_max
-        FROM v_all_unlocks v
-        JOIN texts t ON v.TID = t.TID
-        JOIN buildingid bi ON v.TID = bi.TID
-        WHERE v.TownHallLevel = :qg AND v.Amount > 0
-        ORDER BY bi.Ordre ASC
-    ");
-    $stmt_limits->execute(['qg' => $qg]);
-    $authorized_buildings = $stmt_limits->fetchAll(PDO::FETCH_ASSOC);
-
-    // 2. Progression réelle du joueur (niveau + Debloque), indexée par TID puis par id_instance
+    // progress_building est maintenant la source de vérité complète : une ligne y est
+    // créée pour chaque emplacement de bâtiment débloqué (Debloque = 0 tant qu'il n'est
+    // pas encore construit, Debloque = 1 une fois construit). Plus besoin de la vue
+    // v_all_unlocks pour savoir ce qui est disponible à ce QG : on lit directement ici.
     $stmt_prog = $pdo->prepare("
-        SELECT bi.TID, pb.id_instance, pb.niveau, pb.Debloque
+        SELECT pb.id_instance, pb.niveau, pb.Debloque, bi.TID, bi.Class, bi.Ordre, t.FR AS nom
         FROM progress_building pb
         JOIN buildingid bi ON bi.ID = pb.id_building
+        JOIN texts t ON bi.TID = t.TID
         WHERE pb.id_player = ?
+        ORDER BY bi.Ordre ASC, pb.id_instance ASC
     ");
     $stmt_prog->execute([$id_player]);
-    $progress = [];
-    while ($row = $stmt_prog->fetch(PDO::FETCH_ASSOC)) {
-        $progress[$row['TID']][(int)$row['id_instance']] = [
-            'niveau'   => (int)$row['niveau'],
-            'Debloque' => (int)$row['Debloque']
-        ];
-    }
+    $rows = $stmt_prog->fetchAll(PDO::FETCH_ASSOC);
 
-    // 3. Assemblage final, instance par instance
+    // Niveau max atteignable par TID (dépend toujours du QG via buildings.TownHallLevel,
+    // indépendamment de la vue) — mis en cache pour ne pas refaire la requête à chaque instance.
+    $niveau_max_cache = [];
+
     $buildings_display = ['Ressource' => [], 'Defense' => [], 'Army' => []];
 
-    foreach ($authorized_buildings as $b) {
+    foreach ($rows as $b) {
         $category = $b['Class'];
         if (!isset($buildings_display[$category])) continue;
 
-        $niveau_max = (int)($b['niveau_max'] ?? 1);
+        $tid = $b['TID'];
 
-        for ($i = 1; $i <= (int)$b['Amount']; $i++) {
-            $etat          = $progress[$b['TID']][$i] ?? ['niveau' => 0, 'Debloque' => 0];
-            $niveau_actuel = $etat['niveau'];
-            $debloque      = $etat['Debloque'];
-
-            // Image : niveau actuel si construit, sinon aperçu niveau 1
-            $lvl_img = $niveau_actuel > 0 ? $niveau_actuel : 1;
-            $stmt_img = $pdo->prepare("SELECT ExportName FROM buildings WHERE TID = ? AND Niveau = ? LIMIT 1");
-            $stmt_img->execute([$b['TID'], $lvl_img]);
-            $export_name = $stmt_img->fetchColumn() ?: 'default';
-
-            // Coût / temps / XP du PROCHAIN niveau (niveau_actuel + 1), si pas déjà au max
-            $next = null;
-            $remaining_wood = 0;
-            $remaining_stone = 0;
-            $remaining_iron = 0;
-            $remaining_time_seconds = 0;
-            if ($niveau_actuel < $niveau_max) {
-                $stmt_next = $pdo->prepare("
-                    SELECT BuildCostWood, BuildCostStone, BuildCostIron,
-                           BuildTimeD, BuildTimeH, BuildTimeM, BuildTimeS, XpGain
-                    FROM buildings WHERE TID = ? AND Niveau = ? LIMIT 1
-                ");
-                $stmt_next->execute([$b['TID'], $niveau_actuel + 1]);
-                $next = $stmt_next->fetch(PDO::FETCH_ASSOC) ?: null;
-
-                // Total restant : somme de TOUS les niveaux entre l'actuel et le max
-                // (utilisé pour le récap "coût total restant" de la sidebar).
-                $stmt_remaining = $pdo->prepare("
-                    SELECT SUM(BuildCostWood) AS wood, SUM(BuildCostStone) AS stone, SUM(BuildCostIron) AS iron,
-                           SUM(BuildTimeD*86400 + BuildTimeH*3600 + BuildTimeM*60 + BuildTimeS) AS time_seconds
-                    FROM buildings WHERE TID = ? AND Niveau > ? AND Niveau <= ?
-                ");
-                $stmt_remaining->execute([$b['TID'], $niveau_actuel, $niveau_max]);
-                $row_remaining = $stmt_remaining->fetch(PDO::FETCH_ASSOC);
-                $remaining_wood         = (int)($row_remaining['wood'] ?? 0);
-                $remaining_stone        = (int)($row_remaining['stone'] ?? 0);
-                $remaining_iron         = (int)($row_remaining['iron'] ?? 0);
-                $remaining_time_seconds = (int)($row_remaining['time_seconds'] ?? 0);
-            }
-
-            $buildings_display[$category][] = [
-                'TID'           => $b['TID'],
-                'nom_building'  => $b['nom'],
-                'id_instance'   => $i,
-                'ExportName'    => $export_name,
-                'niveau_actuel' => $niveau_actuel,
-                'niveau_max'    => $niveau_max,
-                'Debloque'      => $debloque,
-                'BuildCostWood'  => $next['BuildCostWood']  ?? null,
-                'BuildCostStone' => $next['BuildCostStone'] ?? null,
-                'BuildCostIron'  => $next['BuildCostIron']  ?? null,
-                'BuildTimeD'     => $next['BuildTimeD']     ?? null,
-                'BuildTimeH'     => $next['BuildTimeH']     ?? null,
-                'BuildTimeM'     => $next['BuildTimeM']     ?? null,
-                'BuildTimeS'     => $next['BuildTimeS']     ?? null,
-                'XpGain'         => $next['XpGain']         ?? null,
-                // Totaux restants (jusqu'au niveau max), pour le récap de la sidebar
-                'remaining_wood'         => $remaining_wood,
-                'remaining_stone'        => $remaining_stone,
-                'remaining_iron'         => $remaining_iron,
-                'remaining_time_seconds' => $remaining_time_seconds,
-            ];
+        if (!isset($niveau_max_cache[$tid])) {
+            $stmt_max = $pdo->prepare("SELECT MAX(Niveau) FROM buildings WHERE TID = ? AND TownHallLevel <= ?");
+            $stmt_max->execute([$tid, $qg]);
+            $niveau_max_cache[$tid] = (int)($stmt_max->fetchColumn() ?: 1);
         }
+        $niveau_max = $niveau_max_cache[$tid];
+
+        $niveau_actuel = (int)$b['niveau'];
+        $debloque      = (int)$b['Debloque'];
+
+        // Image : niveau actuel si construit, sinon aperçu niveau 1
+        $lvl_img = $niveau_actuel > 0 ? $niveau_actuel : 1;
+        $stmt_img = $pdo->prepare("SELECT ExportName FROM buildings WHERE TID = ? AND Niveau = ? LIMIT 1");
+        $stmt_img->execute([$tid, $lvl_img]);
+        $export_name = $stmt_img->fetchColumn() ?: 'default';
+
+        // Coût / temps / XP du PROCHAIN niveau (niveau_actuel + 1), si pas déjà au max
+        $next = null;
+        $remaining_wood = 0;
+        $remaining_stone = 0;
+        $remaining_iron = 0;
+        $remaining_time_seconds = 0;
+        if ($niveau_actuel < $niveau_max) {
+            $stmt_next = $pdo->prepare("
+                SELECT BuildCostWood, BuildCostStone, BuildCostIron,
+                       BuildTimeD, BuildTimeH, BuildTimeM, BuildTimeS, XpGain
+                FROM buildings WHERE TID = ? AND Niveau = ? LIMIT 1
+            ");
+            $stmt_next->execute([$tid, $niveau_actuel + 1]);
+            $next = $stmt_next->fetch(PDO::FETCH_ASSOC) ?: null;
+
+            // Total restant : somme de TOUS les niveaux entre l'actuel et le max
+            // (utilisé pour le récap "coût total restant" de la sidebar).
+            $stmt_remaining = $pdo->prepare("
+                SELECT SUM(BuildCostWood) AS wood, SUM(BuildCostStone) AS stone, SUM(BuildCostIron) AS iron,
+                       SUM(BuildTimeD*86400 + BuildTimeH*3600 + BuildTimeM*60 + BuildTimeS) AS time_seconds
+                FROM buildings WHERE TID = ? AND Niveau > ? AND Niveau <= ?
+            ");
+            $stmt_remaining->execute([$tid, $niveau_actuel, $niveau_max]);
+            $row_remaining = $stmt_remaining->fetch(PDO::FETCH_ASSOC);
+            $remaining_wood         = (int)($row_remaining['wood'] ?? 0);
+            $remaining_stone        = (int)($row_remaining['stone'] ?? 0);
+            $remaining_iron         = (int)($row_remaining['iron'] ?? 0);
+            $remaining_time_seconds = (int)($row_remaining['time_seconds'] ?? 0);
+        }
+
+        $buildings_display[$category][] = [
+            'TID'           => $tid,
+            'nom_building'  => $b['nom'],
+            'id_instance'   => (int)$b['id_instance'],
+            'ExportName'    => $export_name,
+            'niveau_actuel' => $niveau_actuel,
+            'niveau_max'    => $niveau_max,
+            'Debloque'      => $debloque,
+            'BuildCostWood'  => $next['BuildCostWood']  ?? null,
+            'BuildCostStone' => $next['BuildCostStone'] ?? null,
+            'BuildCostIron'  => $next['BuildCostIron']  ?? null,
+            'BuildTimeD'     => $next['BuildTimeD']     ?? null,
+            'BuildTimeH'     => $next['BuildTimeH']     ?? null,
+            'BuildTimeM'     => $next['BuildTimeM']     ?? null,
+            'BuildTimeS'     => $next['BuildTimeS']     ?? null,
+            'XpGain'         => $next['XpGain']         ?? null,
+            // Totaux restants (jusqu'au niveau max), pour le récap de la sidebar
+            'remaining_wood'         => $remaining_wood,
+            'remaining_stone'        => $remaining_stone,
+            'remaining_iron'         => $remaining_iron,
+            'remaining_time_seconds' => $remaining_time_seconds,
+        ];
     }
 
     return $buildings_display;
@@ -177,8 +170,15 @@ unset($data);
 // ========================================================
 // 1. Fonction dédiée aux Troupes // Proto // Héros // Chefs de bataillon
 // ========================================================
-function getFilteredUnits($pdo, $qg, $arsenal_max, $typeFilterSQL, $player_progress = []) {
+function getFilteredUnits($pdo, $qg, $arsenal_max, $typeFilterSQL, $player_progress = [], $house_levels = []) {
     // 1. Requête principale
+    // NOTE : la jointure sur progress_character passe par une sous-requête agrégée
+    // (MAX(niveau)/MAX(Debloque) GROUP BY id_character) au lieu d'un simple LEFT JOIN direct.
+    // Si jamais plusieurs lignes progress_character existent pour le même (id_player,
+    // id_character) — par exemple si progress_character n'a pas de contrainte UNIQUE et que
+    // update_qg.php y insère plusieurs fois via INSERT IGNORE — un LEFT JOIN direct dupliquerait
+    // le personnage autant de fois qu'il y a de lignes (symptôme observé : "Dr Kavan" affiché
+    // plusieurs fois). Cette sous-requête garantit toujours UNE seule ligne par personnage.
     $sql = "SELECT ci.id AS id_character, c.*, t.FR AS nom, ci.Class, ci.IconExportName, ci.Officer,
                ot.TalentTID1, ot.TalentTID2, ot.TalentTID3, ot.TalentTID4, ot.TalentTID5,
                pc.niveau, pc.Debloque
@@ -186,7 +186,12 @@ function getFilteredUnits($pdo, $qg, $arsenal_max, $typeFilterSQL, $player_progr
         INNER JOIN texts t ON c.TID = t.TID
         INNER JOIN characterid ci ON c.TID = ci.TID
         LEFT JOIN officer_talents ot ON ci.TID = ot.TID
-        LEFT JOIN progress_character pc ON ci.id = pc.id_character AND pc.id_player = :id_player
+        LEFT JOIN (
+            SELECT id_character, MAX(niveau) AS niveau, MAX(Debloque) AS Debloque
+            FROM progress_character
+            WHERE id_player = :id_player
+            GROUP BY id_character
+        ) pc ON ci.id = pc.id_character
         WHERE $typeFilterSQL 
         AND c.Niveau = 1
         AND ci.HQUnlock <= :qg
@@ -214,6 +219,7 @@ function getFilteredUnits($pdo, $qg, $arsenal_max, $typeFilterSQL, $player_progr
     $final_list = [];
     foreach ($results as $u) {
         $is_officer = (strcasecmp(trim($u['Class']), 'Officier') === 0);
+        $is_hero    = (strcasecmp(trim($u['Class']), 'Hero') === 0);
         $tid_to_check = (!empty($u['Officer'])) ? $u['Officer'] : $u['TID'];
         $niveau_joueur = $player_progress[$tid_to_check] ?? 1;
 
@@ -221,6 +227,7 @@ function getFilteredUnits($pdo, $qg, $arsenal_max, $typeFilterSQL, $player_progr
         $officer_abilities = [];
         $total_talents_unlocked = 0;
         $next_talent_id = 0;
+        $hero_abilities = [];
 
         if ($is_officer) {
             // --- BLOC A : Compter les talents débloqués et préparer le prochain ---
@@ -274,7 +281,40 @@ function getFilteredUnits($pdo, $qg, $arsenal_max, $typeFilterSQL, $player_progr
             }
         }
 
-        // --- Niveau max atteignable + coût du prochain niveau ---
+        if ($is_hero) {
+            // Les Héros ont exactement 3 capacités (Type = 'HeroAbility' dans abilitieid),
+            // reliées via la colonne abilitieid.hero = characterid.id, ordonnées par id.
+            // Mêmes coûts/temps que les officiers : table officer_abilities (TID, Niveau,
+            // HeroLevel, UpgradeTimeH, UpgradeTimeM, UpgradeCost, UpgradeResource).
+            $stmt_hero_ab = $pdo->prepare("
+                SELECT ai.id, ai.TID, ai.IconExportName, t.FR AS nom
+                FROM abilitieid ai
+                LEFT JOIN texts t ON ai.TID = t.TID
+                WHERE ai.hero = ?
+                ORDER BY ai.id ASC
+            ");
+            $stmt_hero_ab->execute([$u['id_character']]);
+            $hero_ab_rows = $stmt_hero_ab->fetchAll(PDO::FETCH_ASSOC);
+
+            foreach ($hero_ab_rows as $hab) {
+                $stmt_hero_lvls = $pdo->prepare("
+                    SELECT Niveau, HeroLevel, UpgradeTimeH, UpgradeTimeM, UpgradeCost, UpgradeResource
+                    FROM officer_abilities WHERE TID = ? ORDER BY Niveau ASC
+                ");
+                $stmt_hero_lvls->execute([$hab['TID']]);
+
+                $hero_abilities[] = [
+                    'id_ability'     => (int)$hab['id'],
+                    'TID'            => $hab['TID'],
+                    'IconExportName' => $hab['IconExportName'] ?? 'default',
+                    'nom'            => $hab['nom'] ?? $hab['TID'],
+                    'current_level'  => $abilities_progress["{$u['id_character']}-{$hab['id']}"] ?? 1,
+                    'levels'         => $stmt_hero_lvls->fetchAll(PDO::FETCH_ASSOC),
+                ];
+            }
+        }
+
+        // --- Niveau max ATTEIGNABLE + coût du prochain niveau ---
         // Une seule colonne UpgradeCost en base (pas de distinction Or/Proto-jetons stockée) :
         // la distinction se fait côté affichage selon la Class ('Troupe' => Or, 'Proto' => Jetons Proto).
         // UpgradeTimeH est exprimé en HEURES (formatUnitsTime() le convertit en j/h/m à l'affichage).
@@ -282,7 +322,43 @@ function getFilteredUnits($pdo, $qg, $arsenal_max, $typeFilterSQL, $player_progr
         // "characters" du niveau ACTUEL (même convention que upgrade_character.php : Niveau = target_level - 1).
         $stmt_max_char = $pdo->prepare("SELECT MAX(Niveau) FROM characters WHERE TID = ?");
         $stmt_max_char->execute([$u['TID']]);
-        $niveau_max = (int)($stmt_max_char->fetchColumn() ?: $niveau_joueur);
+        $niveau_max_absolu = (int)($stmt_max_char->fetchColumn() ?: $niveau_joueur);
+
+        // Le "vrai" plafond du moment dépend du bâtiment/QG réel du joueur, pas du dernier
+        // palier théorique de l'unité (characters.UpgradeHouseLevel) :
+        // Troupes/Capacités de canonnière -> Arsenal (id_building 12)
+        // Proto-troupes                   -> Atelier de Proto-troupes (id_building 29)
+        // Héros                           -> QG du joueur DIRECTEMENT (pas l'Arsenal/l'Atelier)
+        // Officiers                       -> pas de palier de bâtiment, le max reste absolu.
+        $class_trim      = trim($u['Class'] ?? '');
+        $is_troop_class  = (strcasecmp($class_trim, 'Troupe') === 0);
+        $is_proto_class  = (strcasecmp($class_trim, 'Proto') === 0);
+        $is_spell_class  = (strcasecmp($class_trim, 'Spell') === 0);
+        $is_hero_class   = (strcasecmp($class_trim, 'Hero') === 0);
+
+        if ($is_troop_class || $is_spell_class) {
+            $relevant_house_level = (int)($house_levels['arsenal'] ?? 0);
+        } elseif ($is_proto_class) {
+            $relevant_house_level = (int)($house_levels['proto_factory'] ?? 0);
+        } elseif ($is_hero_class) {
+            $relevant_house_level = (int)$qg;
+        } else {
+            $relevant_house_level = null;
+        }
+
+        if ($relevant_house_level !== null) {
+            // characters.UpgradeHouseLevel sur la ligne Niveau=N est le niveau (Arsenal / Atelier
+            // / QG selon la classe) requis pour ATTEINDRE le niveau N — confirmé contre le wiki
+            // Boom Beach : à Arsenal 1, Fusilier et Gros bras plafonnent tous les deux à Niveau 2.
+            // Donc pas de +1 : le niveau max atteignable est le plus haut Niveau dont le palier
+            // est satisfait par le niveau réel (bâtiment ou QG) du joueur.
+            $stmt_cap = $pdo->prepare("SELECT MAX(Niveau) FROM characters WHERE TID = ? AND UpgradeHouseLevel <= ?");
+            $stmt_cap->execute([$u['TID'], $relevant_house_level]);
+            $niveau_max = (int)($stmt_cap->fetchColumn() ?: 1);
+            $niveau_max = min($niveau_max_absolu, max(1, $niveau_max));
+        } else {
+            $niveau_max = $niveau_max_absolu;
+        }
 
         $next_cost = null;
         $remaining_cost = 0;
@@ -296,8 +372,8 @@ function getFilteredUnits($pdo, $qg, $arsenal_max, $typeFilterSQL, $player_progr
                 $stmt_next_cost->execute([$u['TID'], $niveau_joueur]);
                 $next_cost = $stmt_next_cost->fetch(PDO::FETCH_ASSOC) ?: null;
 
-                // Total restant : somme de TOUS les niveaux entre l'actuel et le max
-                // (utilisé pour le récap "coût total restant" de la sidebar).
+                // Total restant : somme de tous les niveaux entre l'actuel et le plafond ATTEIGNABLE
+                // (donc jusqu'à ce que l'Arsenal/Atelier soit lui-même amélioré, pas jusqu'au max absolu).
                 $stmt_remaining = $pdo->prepare("
                     SELECT SUM(UpgradeCost) AS total_cost, SUM(UpgradeTimeH) AS total_time
                     FROM characters WHERE TID = ? AND Niveau >= ? AND Niveau < ?
@@ -320,11 +396,13 @@ function getFilteredUnits($pdo, $qg, $arsenal_max, $typeFilterSQL, $player_progr
             'IconExportName' => $u['IconExportName'],
             'Class' => $u['Class'],
             'is_officer' => $is_officer,
+            'is_hero' => $is_hero,
             'niveau_joueur' => $niveau_joueur,
             'Debloque' => $u['Debloque'] ?? 0,
             'total_talents_unlocked' => $total_talents_unlocked,
             'next_talent_id' => $next_talent_id,
             'abilities' => $officer_abilities,
+            'hero_abilities' => $hero_abilities,
             'niveau_autorise' => $niveau_max,
             'next_cost' => $next_cost,
             // Totaux restants (jusqu'au niveau max), pour le récap de la sidebar
@@ -373,13 +451,13 @@ function getBuildings($pdo, $id_player) {
 
 
 
-$monument_level = 0;
-if (isset($player_progress['MYSTIC_MONUMENT'][1])) {
-    $monument_level = (int)$player_progress['MYSTIC_MONUMENT'][1];
-} else {
-    // Alternative : si vous le stockez dans une autre table ou variable
-    $monument_level = 250; // Valeur d'exemple pour test
-}
+// Le Monument mystique (TID_BUILDING_CC, id_building = 32) est un bâtiment comme les autres :
+// son niveau se lit dans progress_building, exactement comme le Radar ou l'Arsenal.
+// (progress_monument, plus bas, sert à tout autre chose : le nombre de bonus du Cercle des
+// Chefs choisis par le joueur, pas le niveau du monument lui-même.)
+$stmt_monument = $pdo->prepare("SELECT niveau FROM progress_building WHERE id_player = ? AND id_building = 32 LIMIT 1");
+$stmt_monument->execute([$id_player]);
+$monument_level = (int)($stmt_monument->fetchColumn() ?: 0);
 
 // 2. Récupérer tous les bonus disponibles
 $stmt_bonuses = $pdo->prepare("SELECT id_bonus, t.FR AS TID, MaxCount, BoostAmount, MinBuildingLevel FROM cc_bonuses INNER JOIN texts t ON t.TID = cc_bonuses.TID ORDER BY MinBuildingLevel ASC, TID ASC");
@@ -396,6 +474,14 @@ $player_bonuses = [];
 foreach ($player_bonuses_raw as $pb) {
     $player_bonuses[$pb['id_bonus']] = (int)$pb['nb_bonus'];
 }
+
+// Le Graveur (TID_BUILDING_ARTIFACT_RESEARCH, id_building = 1) conditionne l'accès aux Gravures :
+// l'onglet entier nécessite qu'il soit construit (niveau >= 1), et la sous-catégorie Défensive
+// nécessite en plus qu'il soit au niveau 2.
+$stmt_graveur = $pdo->prepare("SELECT niveau FROM progress_building WHERE id_player = ? AND id_building = 1 LIMIT 1");
+$stmt_graveur->execute([$id_player]);
+$graveur_level = (int)($stmt_graveur->fetchColumn() ?: 0);
+
 
 // --- RÉCUPÉRATION DE LA PROGRESSION DES TROUPES ---
 $character_progress = [];
@@ -418,36 +504,55 @@ try {
     error_log("Erreur chargement progression troupes: " . $e->getMessage());
 }
 
-// Trouver l'Arsenal Max
+// Trouver l'Arsenal Max permis par le QG actuel
 $qg = (int)$qg;
 $stmt_ars = $pdo->prepare("SELECT MAX(Niveau) as arsenal_max FROM buildings WHERE TID = 'TID_BUILDING_LABORATORY' AND TownHallLevel <= :qg");
 $stmt_ars->execute(['qg' => $qg]);
-$arsenal_current_max = $stmt_ars->fetch(PDO::FETCH_ASSOC)['arsenal_max'] ?? 1;
+$arsenal_current_max = (int)($stmt_ars->fetch(PDO::FETCH_ASSOC)['arsenal_max'] ?? 1);
 
-// --- NIVEAU RÉEL CONSTRUIT PAR LE JOUEUR : Arsenal (id_building 13) et Atelier de Proto-troupes (id_building 30) ---
+// Idem pour l'Atelier de Proto-troupes (même principe, symétrique)
+$stmt_proto_max = $pdo->prepare("SELECT MAX(Niveau) as proto_max FROM buildings WHERE TID = 'TID_PROTOTROOP_FACTORY' AND TownHallLevel <= :qg");
+$stmt_proto_max->execute(['qg' => $qg]);
+$proto_factory_current_max = (int)($stmt_proto_max->fetch(PDO::FETCH_ASSOC)['proto_max'] ?? 1);
+
+// --- NIVEAU RÉEL CONSTRUIT PAR LE JOUEUR : Arsenal (id_building 12) et Atelier de Proto-troupes (id_building 29) ---
 // Ces deux bâtiments conditionnent le déblocage des améliorations de Troupes / Proto-troupes
 // via la colonne characters.UpgradeHouseLevel.
+// MAX(niveau) + GROUP BY : si jamais il existe plusieurs lignes progress_building pour le
+// même bâtiment (résidu d'un ancien bug de seeding, plusieurs id_instance, etc.), on prend
+// toujours le niveau réellement construit le plus haut, jamais "la dernière ligne trouvée".
 $house_levels = ['arsenal' => 0, 'proto_factory' => 0];
 try {
     $stmt_house = $pdo->prepare("
-        SELECT id_building, niveau
+        SELECT id_building, MAX(niveau) AS niveau
         FROM progress_building
-        WHERE id_player = ? AND id_building IN (13, 30)
+        WHERE id_player = ? AND id_building IN (12, 29)
+        GROUP BY id_building
     ");
     $stmt_house->execute([$id_player]);
     while ($row = $stmt_house->fetch(PDO::FETCH_ASSOC)) {
-        if ((int)$row['id_building'] === 13) $house_levels['arsenal'] = (int)$row['niveau'];
-        if ((int)$row['id_building'] === 30) $house_levels['proto_factory'] = (int)$row['niveau'];
+        if ((int)$row['id_building'] === 12) $house_levels['arsenal'] = (int)$row['niveau'];
+        if ((int)$row['id_building'] === 29) $house_levels['proto_factory'] = (int)$row['niveau'];
     }
 } catch (PDOException $e) {
     error_log("Erreur récupération niveau Arsenal / Atelier Proto : " . $e->getMessage());
 }
 
+// Le niveau "réel" ne peut jamais dépasser ce que le QG actuel permet pour ce bâtiment.
+// Exemple concret : Arsenal niveau 2 nécessite QG5. Si le joueur est encore QG4 (donc
+// arsenal_current_max = 1), même si progress_building contenait par erreur "niveau 2"
+// (résidu de bug), on le ramène à 1 : impossible d'aller plus loin tant qu'on n'a pas QG5.
+// Ce plafonnement sert à la fois pour le message "Arsenal Niv. X requis" (bouton verrouillé)
+// ET pour le niveau max affiché (Niveau X / Y) des troupes/proto-troupes/capacités.
+$house_levels['arsenal']       = min($house_levels['arsenal'], $arsenal_current_max);
+$house_levels['proto_factory'] = min($house_levels['proto_factory'], $proto_factory_current_max);
+
 // Génération des listes
-$troupes_list  = getFilteredUnits($pdo, $qg, $arsenal_current_max, "ci.Class = 'Troupe'", $character_progress);
-$heros_list    = getFilteredUnits($pdo, $qg, $arsenal_current_max, "ci.Class = 'Hero'", $character_progress);
-$proto_list    = getFilteredUnits($pdo, $qg, $arsenal_current_max, "ci.Class = 'Proto'", $character_progress);
-$officers_list = getFilteredUnits($pdo, $qg, $arsenal_current_max, "ci.Class = 'Officier'", $character_progress);
+$troupes_list  = getFilteredUnits($pdo, $qg, $arsenal_current_max, "ci.Class = 'Troupe'", $character_progress, $house_levels);
+$heros_list    = getFilteredUnits($pdo, $qg, $arsenal_current_max, "ci.Class = 'Hero'", $character_progress, $house_levels);
+$proto_list    = getFilteredUnits($pdo, $qg, $arsenal_current_max, "ci.Class = 'Proto'", $character_progress, $house_levels);
+$officers_list = getFilteredUnits($pdo, $qg, $arsenal_current_max, "ci.Class = 'Officier'", $character_progress, $house_levels);
+$capacanon_list = getFilteredUnits($pdo, $qg, $arsenal_current_max, "ci.Class = 'Spell'", $character_progress, $house_levels);
 
 
 
@@ -520,5 +625,118 @@ try {
     }
 } catch (PDOException $e) {
     error_log("Erreur lors de la récupération des gravures : " . $e->getMessage());
+}
+// ========================================================
+
+// ========================================================
+// 13. RECUPERATION DES TRIBUS ET DE LA PROGRESSION
+// ========================================================
+// Schéma réel :
+//   - tribsid(id, TID, RadarLvlReq, IconExportName)      -> 6 tribus, 1 ligne chacune
+//   - tribs(TID, Niveau, UpgradeCost, UpgradeTimeM)       -> coût en Cristaux bruts, temps en MINUTES
+//   - progress_tribs(id_player, id_trib, niveau, Debloque) -> id_trib = tribsid.id
+//   - Le Radar (Salle des cartes) = buildings.TID 'TID_BUILDING_MAP_ROOM' / id_building = 14,
+//     son niveau joueur est lu dans progress_building comme n'importe quel autre bâtiment.
+//   - Quand le Radar atteint le niveau requis, seedTribusUnlockRows() (functions.php) crée
+//     une ligne "placeholder" (niveau=0, Debloque=0) ; le joueur doit ensuite cliquer sur
+//     "Débloquer" (upgrade_tribs.php) pour faire passer Debloque à 1.
+
+$tribus_list = [];
+
+// Niveau actuel du Radar du joueur : conditionne le déblocage de chaque tribu
+$radar_level = 0;
+try {
+    $stmt_radar = $pdo->prepare("SELECT niveau FROM progress_building WHERE id_player = ? AND id_building = 14 LIMIT 1");
+    $stmt_radar->execute([$id_player]);
+    $radar_level = (int)($stmt_radar->fetchColumn() ?: 0);
+} catch (PDOException $e) {
+    error_log("Erreur radar (tribus) : " . $e->getMessage());
+}
+
+// --- CONDITIONS DE DÉBLOCAGE DES ONGLETS DE LA SIDEBAR ---
+// (radar_level, monument_level et graveur_level sont déjà calculés plus haut)
+$tab_tribus_unlocked        = ($radar_level >= 18);
+$tab_monument_unlocked      = ($monument_level > 0);
+$tab_gravures_unlocked      = ($graveur_level > 0);
+$tab_gravures_off_unlocked  = ($graveur_level > 0);
+$tab_gravures_def_unlocked  = ($graveur_level >= 2);
+
+// Progression du joueur sur chaque tribu, indexée par id_trib (= tribsid.id).
+// 'niveau' = palier atteint ; 'debloque' = le joueur a bien cliqué sur "Débloquer"
+// (une ligne peut exister avec Debloque = 0 : c'est le "placeholder" créé quand le
+// Radar atteint le niveau requis).
+$tribus_progress = [];
+try {
+    $stmt_trib_prog = $pdo->prepare("SELECT id_trib, niveau, Debloque FROM progress_tribs WHERE id_player = ?");
+    $stmt_trib_prog->execute([$id_player]);
+    while ($row = $stmt_trib_prog->fetch(PDO::FETCH_ASSOC)) {
+        $tribus_progress[(int)$row['id_trib']] = [
+            'niveau'   => (int)$row['niveau'],
+            'debloque' => (int)$row['Debloque'],
+        ];
+    }
+} catch (PDOException $e) {
+    error_log("Erreur progress_tribs : " . $e->getMessage());
+}
+
+// Coûts (Cristaux bruts) + temps (en minutes) par TID + palier de niveau.
+// IMPORTANT : construit AVANT la boucle principale, qui s'en sert pour chaque tribu.
+$tribus_costs = [];
+try {
+    $stmt_trib_costs = $pdo->query("
+        SELECT TID, Niveau, UpgradeCost, UpgradeTimeM
+        FROM tribs
+        ORDER BY TID ASC, Niveau ASC
+    ");
+    while ($cost_row = $stmt_trib_costs->fetch(PDO::FETCH_ASSOC)) {
+        $cost_tid = $cost_row['TID'];
+        $lvl      = (int)$cost_row['Niveau'];
+
+        $tribus_costs[$cost_tid][$lvl] = [
+            'cost'     => (int)($cost_row['UpgradeCost']  ?? 0),
+            // On garde le temps en MINUTES ici ; la conversion en j/h/m se fait à l'affichage
+            // via formatUnitsTime(), qui attend des HEURES (d'où le /60 dans functions.php).
+            'time_min' => (int)($cost_row['UpgradeTimeM'] ?? 0),
+        ];
+    }
+} catch (PDOException $e) {
+    error_log("Erreur coûts tribs : " . $e->getMessage());
+}
+
+// Niveau max de chaque tribu = nombre de paliers définis dans la table tribs pour ce TID
+$tribus_niveau_max = [];
+foreach ($tribus_costs as $tid => $levels) {
+    $tribus_niveau_max[$tid] = max(array_keys($levels));
+}
+
+try {
+    // Requête principale : les 6 tribus + leur condition de déblocage (RadarLvlReq)
+    $stmt_tribsid = $pdo->query("
+        SELECT ti.id AS id_trib, ti.TID, ti.RadarLvlReq, ti.IconExportName, IFNULL(t.FR, ti.TID) AS nom
+        FROM tribsid ti
+        LEFT JOIN texts t ON ti.TID = t.TID
+        ORDER BY ti.RadarLvlReq ASC, ti.TID ASC
+    ");
+
+    while ($row = $stmt_tribsid->fetch(PDO::FETCH_ASSOC)) {
+        $id_trib   = (int)$row['id_trib'];
+        $tid       = $row['TID'];
+        $radar_req = (int)$row['RadarLvlReq'];
+        $progress  = $tribus_progress[$id_trib] ?? ['niveau' => 0, 'debloque' => 0];
+
+        $row['niveau_actuel'] = $progress['niveau'];
+        $row['niveau_max']    = $tribus_niveau_max[$tid] ?? 5;
+        $row['costs']         = $tribus_costs[$tid] ?? [];
+        $row['debloque']      = ($progress['debloque'] === 1);
+        // 'radar_ok' = le Radar est assez haut pour que la tribu soit au moins visible
+        // (normalement, dès que c'est le cas, seedTribusUnlockRows() a déjà créé la ligne
+        // progress_tribs correspondante ; on garde ce check en filet de sécurité).
+        $row['radar_ok']      = ($radar_level >= $radar_req);
+        $row['radar_actuel']  = $radar_level;
+
+        $tribus_list[] = $row;
+    }
+} catch (PDOException $e) {
+    error_log("Erreur lors de la récupération des tribus : " . $e->getMessage());
 }
 // ========================================================

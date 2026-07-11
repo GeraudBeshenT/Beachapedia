@@ -26,7 +26,6 @@ $tous_les_prix = $stmt_prix->fetchAll(PDO::FETCH_ASSOC);
 <?php
 
 include 'header.php';
-include 'modal_qg.php';
 include 'connexion.php';
 ?>
 
@@ -119,9 +118,9 @@ $bb_languages = [
                             <span class="menu-caret">▾</span>
                         </div>
                         <ul class="submenu" style="display: none;">
-                            <li><button class="nav-button" onclick="showTab('Building-Ressource')">Économie</button></li>
-                            <li><button class="nav-button" onclick="showTab('Building-Defense')">Défense</button></li>
-                            <li><button class="nav-button" onclick="showTab('Building-Army')">Renfort</button></li>
+                            <li><button class="nav-button" onclick="showTab('Building-Ressource')">Bâtiments économiques</button></li>
+                            <li><button class="nav-button" onclick="showTab('Building-Defense')">Bâtiments Défensifs</button></li>
+                            <li><button class="nav-button" onclick="showTab('Building-Army')">Bâtiments de support</button></li>
                         </ul>
                     </div>
 
@@ -136,13 +135,19 @@ $bb_languages = [
                             <li><button class="nav-button" onclick="showTab('Character-Hero')">Héros</button></li>
                             <li><button class="nav-button" onclick="showTab('Character-Proto')">Proto-troupes</button></li>
                             <li><button class="nav-button" onclick="showTab('Character-Leader')">Chef de bataillon</button></li>
+                            <li><button class="nav-button" onclick="showTab('Character-Spell')">Capacité de canonnière</button></li>
                         </ul>
                     </div>
 
                     <div class="menu-group">
+                        <?php if ($tab_tribus_unlocked): ?>
                         <div class="menu-header dashboard-btn" onclick="showTab('Tribes')" data-tooltip="Tribus">
+                        <?php else: ?>
+                        <div class="menu-header dashboard-btn locked" data-tooltip="Débloqué avec le Radar niveau 18 (actuel : <?php echo (int)$radar_level; ?>)">
+                        <?php endif; ?>
                             <span class="menu-icon"><svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="7" cy="6.5" r="2.3" stroke="currentColor" stroke-width="1.6"/><circle cx="14" cy="7.5" r="1.9" stroke="currentColor" stroke-width="1.6"/><path d="M2.5 16.2c.5-2.8 2.3-4.3 4.5-4.3s4 1.5 4.5 4.3M11.8 12.3c1.9.1 3.4 1.5 3.8 3.9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
                             <span class="menu-label">Tribus</span>
+                            <?php if (!$tab_tribus_unlocked): ?><span class="menu-lock">🔒</span><?php endif; ?>
                         </div>
                     </div>
 
@@ -154,9 +159,14 @@ $bb_languages = [
                     </div>
 
                     <div class="menu-group">
+                        <?php if ($tab_monument_unlocked): ?>
                         <div class="menu-header dashboard-btn" onclick="showTab('Monument')" data-tooltip="Monument mystique">
+                        <?php else: ?>
+                        <div class="menu-header dashboard-btn locked" data-tooltip="Débloqué une fois le Monument mystique construit">
+                        <?php endif; ?>
                             <span class="menu-icon"><svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M8.5 2.5h3l1.5 10h-6l1.5-10z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M6 17.5h8M6.8 15h6.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
                             <span class="menu-label">Monument mystique</span>
+                            <?php if (!$tab_monument_unlocked): ?><span class="menu-lock">🔒</span><?php endif; ?>
                         </div>
                     </div>
 
@@ -168,14 +178,34 @@ $bb_languages = [
                     </div>
 
                     <div class="menu-group">
+                        <?php if ($tab_gravures_unlocked): ?>
                         <div class="menu-header" onclick="openCategoryTab(this, 'Engraving-Overview')" data-tooltip="Gravures">
+                        <?php else: ?>
+                        <div class="menu-header locked" data-tooltip="Débloqué une fois le Graveur construit">
+                        <?php endif; ?>
                             <span class="menu-icon"><svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M15.5 3.2c-4.8.3-9 3.6-10.8 8.1L3.2 16l4.7-1.5c4.5-1.8 7.8-6 8.1-10.8l-.5-.5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M7 13l6-6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>
                             <span class="menu-label">Gravures</span>
+                            <?php if ($tab_gravures_unlocked): ?>
                             <span class="menu-caret">▾</span>
+                            <?php else: ?>
+                            <span class="menu-lock">🔒</span>
+                            <?php endif; ?>
                         </div>
                         <ul class="submenu" style="display: none;">
-                            <li><button class="nav-button" onclick="showTab('Engraving-Offensive')">Offensive</button></li>
-                            <li><button class="nav-button" onclick="showTab('Engraving-Defensive')">Defensive</button></li>
+                            <li>
+                                <?php if ($tab_gravures_off_unlocked): ?>
+                                <button class="nav-button" onclick="showTab('Engraving-Offensive')">Offensive</button>
+                                <?php else: ?>
+                                <button class="nav-button locked" disabled title="Débloqué une fois le Graveur construit">Offensive 🔒</button>
+                                <?php endif; ?>
+                            </li>
+                            <li>
+                                <?php if ($tab_gravures_def_unlocked): ?>
+                                <button class="nav-button" onclick="showTab('Engraving-Defensive')">Defensive</button>
+                                <?php else: ?>
+                                <button class="nav-button locked" disabled title="Débloqué avec le Graveur niveau 2 (actuel : <?php echo (int)$graveur_level; ?>)">Defensive 🔒</button>
+                                <?php endif; ?>
+                            </li>
                         </ul>
                     </div>
                 </div>
@@ -218,6 +248,8 @@ $bb_languages = [
 
     <div class="main-content">
 
+        <?php include 'modal_qg.php'; ?>
+
         <?php
             // On pré-calcule les stats pour les passer à la sidebar
             $stats_res = getCategoryStats($buildings_display['Ressource'] ?? []);
@@ -232,37 +264,86 @@ $bb_languages = [
             );
             $stats_buildings_global = getCategoryStats($all_buildings_flat);
 
-            $stats_troupes_global = ['current' => 0, 'max' => 0, 'percent' => 0];
-            if (!empty($troupes_list)) {
-                $t_current = 0;
-                $t_max = 0;
-                foreach ($troupes_list as $t) {
-                    $t_current += (int)($t['niveau_joueur'] ?? 0);
-                    $t_max     += (int)($t['niveau_autorise'] ?? 0);
-                }
-                $stats_troupes_global = [
-                    'current' => $t_current,
-                    'max'     => $t_max,
-                    'percent' => ($t_max > 0) ? round(($t_current / $t_max) * 100, 1) : 0
-                ];
-            }
-
             $chefs_debloques = 0;
             foreach ($officers_list as $o) {
                 if ((int)($o['Debloque'] ?? 0) === 1) $chefs_debloques++;
             }
             $chefs_total = count($officers_list);
+
+            // --- Armée : Troupes + Proto-troupes combinées, Héros, et capacités des Chefs (hors talents) ---
+            $stats_troupes_proto  = getUnitsStats(array_merge($troupes_list ?? [], $proto_list ?? []));
+            $stats_heros          = getUnitsStats($heros_list ?? []);
+            $stats_officiers_capa = getOfficersCapaciteStats($pdo, $id_player, $officers_list ?? []);
+            $stats_capacanon      = getUnitsStats($capacanon_list ?? []);
+
+            // --- Tribus : maintenant suivies en base (voir queries.php, bloc 13) ---
+            $tribus_current    = 0;
+            $tribus_max        = 0;
+            $tribus_debloquees = 0;
+            foreach ($tribus_list as $trb) {
+                $tribus_current += (int)($trb['niveau_actuel'] ?? 0);
+                $tribus_max     += (int)($trb['niveau_max'] ?? 0);
+                if (!empty($trb['debloque'])) $tribus_debloquees++;
+            }
+            $tribus_total_tribus = count($tribus_list);
+            $stats_tribus = [
+                'current'    => $tribus_current,
+                'max'        => $tribus_max,
+                'percent'    => ($tribus_max > 0) ? round(($tribus_current / $tribus_max) * 100, 1) : 0,
+                'debloquees' => $tribus_debloquees,
+                'total'      => $tribus_total_tribus,
+            ];
+
+            // --- Monument mystique (niveau du monument + nombre de bonus obtenus) ---
+            $monument_max_level  = 700;
+            $monument_bonus_total    = count($cc_bonuses);
+            $monument_bonus_obtenus  = count(array_filter($player_bonuses, fn($nb) => $nb > 0));
+            $stats_monument = [
+                'level'         => $monument_level,
+                'max_level'     => $monument_max_level,
+                'percent'       => ($monument_max_level > 0) ? round(($monument_level / $monument_max_level) * 100, 1) : 0,
+                'bonus_obtenus' => $monument_bonus_obtenus,
+                'bonus_total'   => $monument_bonus_total,
+            ];
+
+            // --- Gravures : global (offensif + défensif), puis chaque catégorie séparément ---
+            $engravings_all_flat  = array_merge($engravings_offensive, $engravings_defensive);
+            $gravures_total       = count($engravings_all_flat);
+            $gravures_obtenues    = count(array_filter($engravings_all_flat, fn($e) => (int)($e['niveau_actuel'] ?? 0) > 0));
+            $stats_gravures = [
+                'current' => $gravures_obtenues,
+                'max'     => $gravures_total,
+                'percent' => ($gravures_total > 0) ? round(($gravures_obtenues / $gravures_total) * 100, 1) : 0,
+            ];
+
+            $stats_gravures_off = [
+                'current' => count(array_filter($engravings_offensive, fn($e) => (int)($e['niveau_actuel'] ?? 0) > 0)),
+                'max'     => count($engravings_offensive),
+            ];
+            $stats_gravures_off['percent'] = ($stats_gravures_off['max'] > 0) ? round(($stats_gravures_off['current'] / $stats_gravures_off['max']) * 100, 1) : 0;
+
+            $stats_gravures_def = [
+                'current' => count(array_filter($engravings_defensive, fn($e) => (int)($e['niveau_actuel'] ?? 0) > 0)),
+                'max'     => count($engravings_defensive),
+            ];
+            $stats_gravures_def['percent'] = ($stats_gravures_def['max'] > 0) ? round(($stats_gravures_def['current'] / $stats_gravures_def['max']) * 100, 1) : 0;
         ?>
 
         <div id="Dashboard" class="tab-content">
-            <?php renderMainDashboard($stats_buildings_global, $stats_troupes_global, $chefs_debloques, $chefs_total); ?>
+            <?php renderMainDashboard(
+                $stats_buildings_global, $stats_res, $stats_def, $stats_army,
+                $stats_troupes_proto, $stats_heros, $stats_officiers_capa, $chefs_debloques, $chefs_total,
+                $stats_capacanon,
+                $stats_gravures, $stats_gravures_off, $stats_gravures_def,
+                $stats_tribus, $stats_monument
+            ); ?>
         </div>
 
         <div id="Building-Overview" class="tab-content">
             <?php renderCategoryNav('Bâtiments', [
-                ['label' => 'Économie', 'sub' => round($stats_res['percent']) . '% complété', 'tab' => 'Building-Ressource', 'icon' => '🏦'],
-                ['label' => 'Défense',  'sub' => round($stats_def['percent']) . '% complété',  'tab' => 'Building-Defense', 'icon' => '🛡️'],
-                ['label' => 'Renfort',  'sub' => round($stats_army['percent']) . '% complété', 'tab' => 'Building-Army',    'icon' => '🏰'],
+                ['label' => 'Bâtiments économiques', 'sub' => round($stats_res['percent']) . '% complété', 'tab' => 'Building-Ressource', 'icon' => '🏦'],
+                ['label' => 'Bâtiments défensifs',  'sub' => round($stats_def['percent']) . '% complété',  'tab' => 'Building-Defense', 'icon' => '🛡️'],
+                ['label' => 'Bâtiments de support',  'sub' => round($stats_army['percent']) . '% complété', 'tab' => 'Building-Army',    'icon' => '🏰'],
             ]); ?>
         </div>
 
@@ -272,6 +353,7 @@ $bb_languages = [
                 ['label' => 'Héros',               'tab' => 'Character-Hero',   'icon' => '<img src="images/icons/buildingbutton_heroes.png" style="width: 50px;"/>'],
                 ['label' => 'Proto-troupes',       'tab' => 'Character-Proto',  'icon' => '<img src="images/icons/buildingbutton_prototroops.png" style="width: 50px;"/>'],
                 ['label' => 'Chef de bataillon',   'tab' => 'Character-Leader', 'icon' => '<img src="images/icons/OfficerIcon.webp" style="width: 50px;"/>'],
+                ['label' => 'Capacité de canonnière', 'tab' => 'Character-Spell', 'icon' => '🚤'],
             ]); ?>
         </div>
 
@@ -284,6 +366,7 @@ $bb_languages = [
 
         <div id="Building-Ressource" class="tab-content">
 
+            <h2>Bâtiments Économiques</h2>
             <div class="dashboard-wrapper" style="display: flex; gap: 20px; align-items: flex-start;">
                 <div style="flex: 3;">
                     <?php renderBuildingsTable(['Ressource' => $buildings_display['Ressource'] ?? []]); ?>
@@ -296,27 +379,30 @@ $bb_languages = [
 
         <div id="Building-Defense" class="tab-content">
             
+        <h2>Bâtiments Défensifs</h2>
         <div class="dashboard-wrapper" style="display: flex; gap: 20px; align-items: flex-start;">
             <div style="flex: 3;">
-                <?php renderBuildingsTable(['Defense' => $buildings_display['Defense'] ?? []]); ?>
+                <?php renderBuildingsTable(['Bâtiments défensifs' => $buildings_display['Defense'] ?? []]); ?>
             </div>
             <div style="flex: 1;">
-                <?php renderStatsSidebar('Défense', $buildings_display['Defense'] ?? [], $stats_def); ?>
+                <?php renderStatsSidebar('Bâtiments défensifs', $buildings_display['Defense'] ?? [], $stats_def); ?>
             </div>
             </div>
         </div>
         <div id="Building-Army" class="tab-content">
+        <h2>Bâtiments de support</h2>
             <div class="dashboard-wrapper" style="display: flex; gap: 20px; align-items: flex-start;">
                 <div style="flex: 3;">
-                    <?php renderBuildingsTable(['Army' => $buildings_display['Army'] ?? []]); ?>
+                    <?php renderBuildingsTable(['Bâtiments de support' => $buildings_display['Army'] ?? []]); ?>
                 </div>
                 <div style="flex: 1;">
-                    <?php renderStatsSidebar('Armée', $buildings_display['Army'] ?? [], $stats_army); ?>
+                    <?php renderStatsSidebar('Bâtiments de support', $buildings_display['Army'] ?? [], $stats_army); ?>
                 </div>
             </div>
         </div>
 
         <div id="Character-Troop" class="tab-content">
+        <h2>Troupes</h2>
             <div class="dashboard-wrapper" style="display: flex; gap: 20px; align-items: flex-start;">
                 <div style="flex: 3;">
                     <?php renderUnitsTable($troupes_list, $character_progress, $house_levels); ?>
@@ -326,8 +412,19 @@ $bb_languages = [
                 </div>
             </div>
         </div>
-        <div id="Character-Hero" class="tab-content"><?php renderUnitsTable($heros_list); ?></div>
+        <div id="Character-Hero" class="tab-content">
+            <h2>Héros</h2>
+            <div class="dashboard-wrapper" style="display: flex; gap: 20px; align-items: flex-start;">
+                <div style="flex: 3;">
+                    <?php renderUnitsTable($heros_list); ?>
+                </div>
+                <div style="flex: 1;">
+                    <?php renderHeroesStatsSidebar($heros_list); ?>
+                </div>
+            </div>
+        </div>
         <div id="Character-Proto" class="tab-content">
+        <h2>Proto-troupes</h2>
             <div class="dashboard-wrapper" style="display: flex; gap: 20px; align-items: flex-start;">
                 <div style="flex: 3;">
                     <?php renderUnitsTable($proto_list, $character_progress, $house_levels); ?>
@@ -338,6 +435,7 @@ $bb_languages = [
             </div>
         </div>
         <div id="Character-Leader" class="tab-content">
+        <h2>Chef de bataillon</h2>
             <div class="dashboard-wrapper" style="display: flex; gap: 20px; align-items: flex-start;">
                 <div style="flex: 3;">
                     <?php renderUnitsTable($officers_list); ?>
@@ -348,10 +446,25 @@ $bb_languages = [
                 </div>
             </div>
         </div>
+        <div id="Character-Spell" class="tab-content">
+        <h2>Capacité de canonnière</h2>
+            <div class="dashboard-wrapper" style="display: flex; gap: 20px; align-items: flex-start;">
+                <div style="flex: 3;">
+                    <?php renderUnitsTable($capacanon_list, $character_progress, $house_levels); ?>
+                </div>
+                <div style="flex: 1;">
+                    <?php renderUnitsStatsSidebar('Capacité de canonnière', $capacanon_list); ?>
+                </div>
+            </div>
+        </div>
 
         <div id="Tribes" class="tab-content">
-            <h2>Régions et Bonus des Tribus</h2>
-            </div>
+            <h2>Tribus</h2>
+            <p style="margin: 10px 0 20px; color: #bdc3c7;">
+                Radar actuel : niveau <?php echo (int)$radar_level; ?> — chaque tribu se débloque à partir d'un certain niveau de Radar.
+            </p>
+            <?php renderTribusTable($tribus_list); ?>
+        </div>
         <div id="Archipel" class="tab-content">
             <h2>Exploration de l'Archipel</h2>
         </div>

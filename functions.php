@@ -1,5 +1,4 @@
 <?php
-echo '<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&display=swap" rel="stylesheet">';
 
 /**
  * Rendu du Tableau de Bord (Dashboard) avec les 4 graphiques en anneau complet (360°)
@@ -69,11 +68,28 @@ function renderDashboard($dashboard_categories, $dashboard_buildings) {
  * Affiche la liste des bâtiments par catégorie.
  * Inclut un sélecteur de niveau et un bouton d'action pour la mise à jour.
  */
+/**
+ * Bouton "Masquer les X au max" réutilisable sur toutes les grilles (bâtiments,
+ * troupes/héros/proto/canonnière, tribus, gravures). Le JS (toggleHideMaxed)
+ * ajoute/retire la classe 'hide-maxed' sur le conteneur .tab-content parent,
+ * et le CSS masque tout élément portant data-maxed="1" à l'intérieur.
+ * L'état est mémorisé par onglet dans localStorage pour survivre au rechargement.
+ */
+function renderHideMaxedToggle($label = 'les éléments') {
+    echo "
+    <button type='button' class='btn-hide-maxed' data-label='" . htmlspecialchars($label) . "'>
+        <span class='hide-maxed-icon'>👁️</span>
+        <span class='hide-maxed-label'>Masquer " . htmlspecialchars($label) . " au max</span>
+    </button>";
+}
+
 function renderBuildingsTable($buildings_list) {
+    renderHideMaxedToggle('les bâtiments');
+
     foreach ($buildings_list as $category => $buildings) {
         if (empty($buildings)) continue;
 
-        echo "<div class='buildings-grid'>";
+        echo "<div class='buildings-grid hide-maxed-container'>";
 
         foreach ($buildings as $b) {
             // Sécurisation avec ?? pour éviter les Warnings
@@ -85,6 +101,7 @@ function renderBuildingsTable($buildings_list) {
             $img      = $b['ExportName'] ?? 'default-building';
             $debloque = (int)($b['Debloque'] ?? 0);
             $is_maxed = ($niv >= $max);
+            $maxed_attr = $is_maxed ? "1" : "0";
 
             // L'instance reste purement interne (data-instance), jamais affichée à l'écran
             $safe_id = "bld-" . preg_replace('/[^a-zA-Z0-9]/', '', $tid) . "-{$inst}";
@@ -101,7 +118,7 @@ function renderBuildingsTable($buildings_list) {
             $display_text = ($niv === 0) ? "Non construit" : "Niveau {$niv}";
 
             echo "
-            <div class='building-card' id='card-{$safe_id}' data-tid='{$tid}' data-instance='{$inst}'>
+            <div class='building-card' id='card-{$safe_id}' data-tid='{$tid}' data-instance='{$inst}' data-maxed='{$maxed_attr}'>
                 <div class='building-card-visual'>
                     <img class='building-card-img' src='images/{$img}.WEBP' alt='{$nom}' onerror=\"this.src='images/default-building.png'\">
                 </div>
@@ -183,6 +200,85 @@ function getCategoryStats($buildings) {
     ];
 }
 
+/**
+ * Équivalent de getCategoryStats() mais pour les unités (Troupes, Proto-troupes, Héros),
+ * qui utilisent les champs niveau_joueur / niveau_autorise au lieu de niveau_actuel / niveau_max.
+ */
+function getUnitsStats($units_list) {
+    $total_current = 0;
+    $total_max = 0;
+
+    foreach ($units_list as $u) {
+        $total_current += (int)($u['niveau_joueur'] ?? 0);
+        $total_max     += (int)($u['niveau_autorise'] ?? 0);
+    }
+
+    $percent = ($total_max > 0) ? round(($total_current / $total_max) * 100, 1) : 0;
+
+    return [
+        'current' => $total_current,
+        'max'     => $total_max,
+        'percent' => $percent
+    ];
+}
+
+/**
+ * Stats agrégées des capacités (passive + active) de tous les Chefs de bataillon,
+ * SANS compter les talents (volontairement exclus, voir demande produit).
+ * Reprend la même logique que renderLeadersStatsSidebar() mais retourne des totaux
+ * exploitables pour une carte de dashboard au lieu d'un tableau HTML détaillé.
+ */
+function getOfficersCapaciteStats($pdo, $id_player, $officers_list) {
+    if (empty($officers_list)) {
+        return ['current' => 0, 'max' => 0, 'percent' => 0, 'debloques' => 0, 'total' => 0];
+    }
+
+    $stmt_prog = $pdo->prepare("SELECT id_character, id_ability, niveau FROM progress_ability WHERE id_player = ?");
+    $stmt_prog->execute([$id_player]);
+    $abilities_progress = [];
+    while ($row = $stmt_prog->fetch(PDO::FETCH_ASSOC)) {
+        $abilities_progress[(int)$row['id_character']][(int)$row['id_ability']] = (int)$row['niveau'];
+    }
+
+    $current = 0;
+    $max = 0;
+    $debloques = 0;
+
+    foreach ($officers_list as $u) {
+        if ((int)($u['Debloque'] ?? 0) === 1) $debloques++;
+
+        $char_id     = (int)$u['id_character'];
+        $passive_lvl = null;
+        $active_lvl  = null;
+
+        if (!empty($u['abilities'])) {
+            if (isset($u['abilities']['passive'])) {
+                $aid = $u['abilities']['passive']['id_ability'];
+                $passive_lvl = $abilities_progress[$char_id][$aid] ?? null;
+            }
+            if (isset($u['abilities']['active'])) {
+                $aid = $u['abilities']['active']['id_ability'];
+                $active_lvl = $abilities_progress[$char_id][$aid] ?? null;
+            }
+        }
+
+        // -1 car le niveau 1 correspond à "pas encore amélioré" (cohérent avec renderLeadersStatsSidebar)
+        $current += ($passive_lvl !== null) ? ($passive_lvl - 1) : 0;
+        $current += ($active_lvl  !== null) ? ($active_lvl - 1)  : 0;
+        $max     += 14 + 14; // 14 niveaux max par capacité (passive + active) ; talents volontairement exclus
+    }
+
+    $percent = ($max > 0) ? round(($current / $max) * 100, 1) : 0;
+
+    return [
+        'current'   => $current,
+        'max'       => $max,
+        'percent'   => $percent,
+        'debloques' => $debloques,
+        'total'     => count($officers_list),
+    ];
+}
+
 function renderStatsSidebar($title, $buildings_data, $stats) {
     // --- Total restant (coût + temps) pour amener TOUTE la catégorie au niveau max ---
     $total_wood = 0;
@@ -199,8 +295,6 @@ function renderStatsSidebar($title, $buildings_data, $stats) {
     echo "<div class='stats-sidebar' style='background: #2c3e50; padding: 15px; border-radius: 8px; color: #fff; border: 1px solid #456789;'>";
     echo "<h4 style='margin: 0 0 10px 0; border-bottom: 2px solid #1abc9c; padding-bottom: 5px;'>{$title}</h4>";
     echo "<div style='font-size: 1.8em; font-weight: bold; color: #1abc9c; text-align: center; margin-bottom: 10px;'>{$stats['percent']}%</div>";
-
-    
 
     echo "<ul style='list-style: none; padding: 0; margin: 0; font-size: 0.85em;'>";
     
@@ -276,6 +370,7 @@ function formatSecondsToText($seconds) {
  *   vérification du bâtiment requis via la colonne UpgradeHouseLevel :
  *      - Class 'Troupe' -> niveau de l'Arsenal   (TID_BUILDING_LABORATORY / id 13)
  *      - Class 'Proto'  -> niveau de l'Atelier de Proto-troupes (TID_PROTOTROOP_FACTORY / id 30)
+ *      - Class 'Spell' -> niveau de l'Arsenal   (TID_BUILDING_LABORATORY / id 13)
  *
  * $house_levels attend un tableau ['arsenal' => int, 'proto_factory' => int]
  * représentant le niveau RÉEL construit par le joueur pour ces deux bâtiments.
@@ -288,16 +383,20 @@ function renderUnitsTable($data, $progress = [], $house_levels = []) {
     }
 
     // Chaque liste passée à cette fonction ($heros_list, $officers_list, $troupes_list,
-    // $proto_list) est homogène en Class : on choisit donc le conteneur global
-    // (grille "unit-card" ou grille "troop-card") une seule fois, à partir du 1er élément.
+    // $proto_list, $capacanon_list) est homogène en Class : on choisit donc le conteneur
+    // global (grille "unit-card" ou grille "troop-card") une seule fois, à partir du 1er élément.
     $premiere_class      = trim($data[0]['Class'] ?? '');
     $is_troop_list       = (strcasecmp($premiere_class, 'Troupe') === 0);
     $is_prototroop_list  = (strcasecmp($premiere_class, 'Proto') === 0);
-    $use_troop_design    = ($is_troop_list || $is_prototroop_list);
+    $is_spell_list       = (strcasecmp($premiere_class, 'Spell') === 0);
+    $use_troop_design    = ($is_troop_list || $is_prototroop_list || $is_spell_list);
+
+    $label_categorie = $is_prototroop_list ? 'les proto-troupes' : ($is_spell_list ? 'les capacités' : ($is_troop_list ? 'les troupes' : 'les unités'));
+    renderHideMaxedToggle($label_categorie);
 
     echo $use_troop_design
-        ? "<div class='troops-grid'>"
-        : "<div class='main-layout-container' style='display: flex; gap: 20px; align-items: flex-start; width: 100%;'><div class='units-grid-left' style='display: flex; flex-direction: row; flex-wrap: wrap; gap: 15px; flex: 1; justify-content: center;'>";
+        ? "<div class='troops-grid hide-maxed-container'>"
+        : "<div class='main-layout-container hide-maxed-container' style='display: flex; gap: 20px; align-items: flex-start; width: 100%;'><div class='units-grid-left' style='display: flex; flex-direction: row; flex-wrap: wrap; gap: 15px; flex: 1; justify-content: center;'>";
 
     foreach ($data as $u) {
         $tid         = $u['TID'];
@@ -305,41 +404,46 @@ function renderUnitsTable($data, $progress = [], $house_levels = []) {
         $max_lvl     = intval($u['niveau_autorise'] ?? 1);
         $current_lvl = $progress[$tid] ?? $u['niveau_joueur'] ?? 1;
         if ($current_lvl === 0) $current_lvl = 1;
+        $is_maxed_unit = ($current_lvl >= $max_lvl);
+        $maxed_attr    = $is_maxed_unit ? "1" : "0";
 
         $is_officer    = !empty($u['is_officer']);
+        $is_hero       = !empty($u['is_hero']);
         $is_troop      = (strcasecmp(trim($u['Class'] ?? ''), 'Troupe') === 0);
         $is_prototroop = (strcasecmp(trim($u['Class'] ?? ''), 'Proto') === 0);
+        $is_spell      = (strcasecmp(trim($u['Class'] ?? ''), 'Spell') === 0);
 
         // =====================================================================
-        // DESIGN "TROUPE" / "PROTO-TROUPE" (repris de l'ex-renderTroopsTable)
+        // DESIGN "TROUPE" / "PROTO-TROUPE" / "CAPACITÉ DE CANONNIÈRE" (repris de l'ex-renderTroopsTable)
         // =====================================================================
-        if ($is_troop || $is_prototroop) {
+        if ($is_troop || $is_prototroop || $is_spell) {
             $safe_id_trp = "trp-" . preg_replace('/[^a-zA-Z0-9]/', '', $tid);
             $nom         = htmlspecialchars($u['nom'] ?? '???');
             $icon        = $u['IconExportName'] ?? 'default';
             $class_css   = htmlspecialchars($u['Class'] ?? '');
-            $niv         = $current_lvl;
+
+
             $max         = $max_lvl;
-            $is_maxed    = ($niv >= $max);
+            $is_maxed    = ($current_lvl >= $max);
 
             // --- Vérification du bâtiment requis pour le PROCHAIN niveau ---
-            // (Arsenal pour les Troupes, Atelier de Proto-troupes pour les Proto)
+            // (Arsenal pour les Troupes, Atelier de Proto-troupes pour les Proto).
+            // Les Capacités de canonnière n'ont pas de bâtiment requérant connu pour
+            // l'instant : UpgradeHouseLevel vaut 0 dans ce cas, donc jamais bloquant.
             $required_house_level = (int)($u['next_cost']['UpgradeHouseLevel'] ?? 0);
-            $player_house_level   = $is_prototroop
-                ? (int)($house_levels['proto_factory'] ?? 0)
-                : (int)($house_levels['arsenal'] ?? 0);
+            $player_house_level   = $is_prototroop ? (int)($house_levels['proto_factory'] ?? 0) : (int)($house_levels['arsenal'] ?? 0);
             $house_label = $is_prototroop ? "Atelier de Proto-troupes" : "Arsenal";
             $house_ok    = ($required_house_level <= $player_house_level);
 
             echo "
-            <div class='troop-card' id='card-{$safe_id_trp}' data-tid='{$tid}'>
+            <div class='troop-card' id='card-{$safe_id_trp}' data-tid='{$tid}' data-maxed='{$maxed_attr}'>
                 <div class='troop-card-visual'>
                     <img class='troop-card-img' src='images/characters/{$class_css}/{$icon}.png' alt='{$nom}' onerror=\"this.src='images/default-building.png'\">
                 </div>
 
                 <div class='troop-card-info'>
                     <span class='troop-card-name'>{$nom}</span>
-                    <span class='troop-card-level' id='lvl-{$safe_id_trp}'>Niveau {$niv} / {$max}</span>
+                    <span class='troop-card-level' id='lvl-{$safe_id_trp}'>Niveau {$current_lvl} / {$max}</span>
                 </div>";
 
             if (!$is_maxed && !empty($u['next_cost'])) {
@@ -396,7 +500,7 @@ function renderUnitsTable($data, $progress = [], $house_levels = []) {
         $is_locked = ($is_officer && (($u['Debloque'] ?? 0) != 1));
         $locked_class = $is_locked ? 'unit-locked' : '';
 
-        echo "<div class='unit-card {$locked_class}' id='card-{$safe_id}' data-tid='{$tid}' data-id-character='{$u['id_character']}'>";
+        echo "<div class='unit-card {$locked_class}' id='card-{$safe_id}' data-tid='{$tid}' data-id-character='{$u['id_character']}' data-maxed='{$maxed_attr}'>";
 
         // Overlay de déblocage si nécessaire
         if ($is_locked) {
@@ -433,7 +537,7 @@ function renderUnitsTable($data, $progress = [], $house_levels = []) {
                 </div>
             </div>";
 
-            // Rendu des Capacités
+            // Rendu des Capacités (Active / Passive)
             echo "<div class='officer-ability'>";
             foreach (['passive', 'active'] as $type) {
                 $talent = $u['abilities'][$type] ?? null;
@@ -443,51 +547,28 @@ function renderUnitsTable($data, $progress = [], $house_levels = []) {
                         </div>";
                     continue;
                 }
+                echo renderOfficerAbilityRow($talent, $u['id_character'], $current_lvl, "[{$type}]");
+            }
+            echo "</div>";
+        } elseif ($is_hero) {
+            // Bouton d'amélioration de NIVEAU du héros (comme les troupes : Or, plafond selon le QG)
+            $hero_maxed = ($current_lvl >= $max_lvl);
+            echo "<div class='building-action'>
+                    <button class='btn-upgrade' " . ($hero_maxed ? "disabled" : "") . " onclick=\"triggerUpgradeCharacter('{$tid}', '{$safe_id}', {$max_lvl})\">
+                        " . ($hero_maxed ? "Max !" : "Améliorer") . "
+                    </button>
+                </div>";
 
-                $ab_id      = $talent['id_ability'];
-                $ab_icon    = $talent['IconExportName'];
-                $ab_tid     = $talent['TID'];
-                $safe_ab_id = "ab-" . preg_replace('/[^a-zA-Z0-9]/', '', $ab_tid);
-                $ab_lvl     = (int)$talent['current_level'];
-
-                $next_lvl_data = null;
-                if (!empty($talent['levels'])) {
-                    foreach ($talent['levels'] as $row) {
-                        if ((int)$row['Niveau'] === $ab_lvl) {
-                            $next_lvl_data = $row;
-                            break;
-                        }
-                    }
-                }
-
-                $is_max = ($next_lvl_data === null);
-                $cost_display = "";
-                if ($next_lvl_data) {
-                    $resource_name = htmlspecialchars($next_lvl_data['UpgradeResource']);
-                    $cost_display  = "<img src='images/{$resource_name}.png' alt='{$resource_name}' style='width: 20px; vertical-align: middle; margin-left: 4px;'>" . $next_lvl_data['UpgradeCost'];
-                }
-
-                echo "<div class='officer-ability-row' data-id-ability='{$ab_id}'>
-                        <div class='officer-ability-info'>
-                            <div class='officer-ability-header'>
-                                <div><span class='officer-ability-name'>{$talent['nom']}</span> <span class='officer-ability-type'>[{$type}]</span></div>
-                                <div><img src='images/characters/Officier/talent/{$ab_icon}.webp' class='officer-ability-icon'></div>
-                            </div>
-                            <span class='officer-ability-level'>Niveau {$ab_lvl} " . ($is_max ? "" : $cost_display) . "</span>
-                        </div>
-                        <div class='officer-ability-upgrade'>";
-                            if (!$is_max) {
-                                $req_h    = (int)$next_lvl_data['HeroLevel'];
-                                $can_up   = ($current_lvl >= $req_h);
-                                $btn_txt  = $can_up ? "Améliorer" : "Niv. {$req_h} requis";
-                                $disabled = $can_up ? "" : "disabled style='opacity:0.6; cursor:not-allowed;'";
-
-                                echo "<button class='btn-upgrade-ability' {$disabled} data-character='{$u['id_character']}' data-ability='{$ab_id}' onclick=\"triggerUpgradeAbility(this, '{$ab_id}', '{$safe_ab_id}')\">{$btn_txt}</button>";
-                            } else {
-                                echo "<span class='officer-ability-lvl-max'>Max !</span>";
-                            }
-                        echo "</div>
+            // Rendu des 3 Capacités du héros (pas de talents, pas de distinction active/passive)
+            echo "<div class='officer-ability'>";
+            if (empty($u['hero_abilities'])) {
+                echo "<div class='officer-ability-info-placeholder'>
+                        <span style='color:#7f8c8d; font-weight:600; font-size: 0.9em;'>Aucune capacité configurée</span>
                     </div>";
+            } else {
+                foreach ($u['hero_abilities'] as $talent) {
+                    echo renderOfficerAbilityRow($talent, $u['id_character'], $current_lvl, "");
+                }
             }
             echo "</div>";
         } else {
@@ -499,6 +580,60 @@ function renderUnitsTable($data, $progress = [], $house_levels = []) {
     }
 
     echo $use_troop_design ? "</div>" : "</div></div>";
+}
+
+/**
+ * Rendu d'une ligne de capacité (officier ACTIVE/PASSIVE ou capacité de héros) — factorisé
+ * pour être réutilisé à l'identique par les deux designs, avec un simple libellé de type
+ * optionnel ("[active]"/"[passive]" pour les officiers, vide pour les héros).
+ */
+function renderOfficerAbilityRow($talent, $id_character, $current_lvl, $type_label) {
+    $ab_id      = $talent['id_ability'];
+    $ab_icon    = $talent['IconExportName'];
+    $ab_tid     = $talent['TID'];
+    $safe_ab_id = "ab-" . preg_replace('/[^a-zA-Z0-9]/', '', $ab_tid);
+    $ab_lvl     = (int)$talent['current_level'];
+
+    $next_lvl_data = null;
+    if (!empty($talent['levels'])) {
+        foreach ($talent['levels'] as $row) {
+            if ((int)$row['Niveau'] === $ab_lvl) {
+                $next_lvl_data = $row;
+                break;
+            }
+        }
+    }
+
+    $is_max = ($next_lvl_data === null);
+    $cost_display = "";
+    if ($next_lvl_data) {
+        $resource_name = htmlspecialchars($next_lvl_data['UpgradeResource']);
+        $cost_display  = "<img src='images/{$resource_name}.png' alt='{$resource_name}' style='width: 20px; vertical-align: middle; margin-left: 4px;'>" . $next_lvl_data['UpgradeCost'];
+    }
+
+    $html = "<div class='officer-ability-row' data-id-ability='{$ab_id}'>
+            <div class='officer-ability-info'>
+                <div class='officer-ability-header'>
+                    <div><span class='officer-ability-name'>{$talent['nom']}</span> <span class='officer-ability-type'>{$type_label}</span></div>
+                    <div><img src='images/characters/Officier/talent/{$ab_icon}.webp' class='officer-ability-icon'></div>
+                </div>
+                <span class='officer-ability-level'>Niveau {$ab_lvl} " . ($is_max ? "" : $cost_display) . "</span>
+            </div>
+            <div class='officer-ability-upgrade'>";
+                if (!$is_max) {
+                    $req_h    = (int)$next_lvl_data['HeroLevel'];
+                    $can_up   = ($current_lvl >= $req_h);
+                    $btn_txt  = $can_up ? "Améliorer" : "Niv. {$req_h} requis";
+                    $disabled = $can_up ? "" : "disabled style='opacity:0.6; cursor:not-allowed;'";
+
+                    $html .= "<button class='btn-upgrade-ability' {$disabled} data-character='{$id_character}' data-ability='{$ab_id}' onclick=\"triggerUpgradeAbility(this, '{$ab_id}', '{$safe_ab_id}')\">{$btn_txt}</button>";
+                } else {
+                    $html .= "<span class='officer-ability-lvl-max'>Max !</span>";
+                }
+    $html .= "</div>
+        </div>";
+
+    return $html;
 }
 
 /**
@@ -635,6 +770,69 @@ function renderLeadersStatsSidebar($pdo, $id_player, $officers_list) {
 
 
 /**
+ * Sidebar de progression des Héros : % global (niveau + 3 capacités confondus),
+ * puis une ligne par héros avec son propre % combiné.
+ * Contrairement aux Officiers, pas de talents ici — juste le niveau du héros
+ * (plafonné par le QG) + ses 3 capacités (plafonnées par officer_abilities).
+ */
+function renderHeroesStatsSidebar($heros_list) {
+    if (empty($heros_list)) return;
+
+    $global_current = 0;
+    $global_max = 0;
+    $rows_html = "";
+
+    foreach ($heros_list as $u) {
+        $nom         = htmlspecialchars($u['nom'] ?? '???');
+        $lvl_current = (int)($u['niveau_joueur'] ?? 1);
+        $lvl_max     = (int)($u['niveau_autorise'] ?? 1);
+
+        $abilities_current = 0;
+        $abilities_max = 0;
+        foreach ($u['hero_abilities'] ?? [] as $ab) {
+            $abilities_current += (int)($ab['current_level'] ?? 1);
+            // Chaque ligne de 'levels' décrit un palier d'amélioration supplémentaire
+            // (même convention que characters/officer_abilities) : niveau max = nb de paliers + 1.
+            $abilities_max += count($ab['levels'] ?? []) + 1;
+        }
+
+        $current_sum = $lvl_current + $abilities_current;
+        $max_sum     = $lvl_max + $abilities_max;
+        $percent     = ($max_sum > 0) ? round(($current_sum / $max_sum) * 100) : 0;
+
+        $global_current += $current_sum;
+        $global_max     += $max_sum;
+
+        $color = ($current_sum >= $max_sum) ? '#2ecc71' : '#1abc9c';
+
+        $rows_html .= "
+            <tr style='border-bottom:1px solid #3e4a56;'>
+                <td style='padding:6px 4px;'>{$nom}</td>
+                <td style='padding:6px 4px; text-align:center; color:#bdc3c7;'>{$lvl_current}/{$lvl_max}</td>
+                <td style='padding:6px 4px; text-align:right; font-weight:bold; color:{$color};'>{$percent}%</td>
+            </tr>";
+    }
+
+    $global_percent = ($global_max > 0) ? round(($global_current / $global_max) * 100) : 0;
+
+    echo "<div class='stats-sidebar' style='background: #2c3e50; padding: 15px; border-radius: 8px; color: #fff; width: 100%;'>";
+    echo "<h4 style='margin-top:0; border-bottom: 2px solid #1abc9c; padding-bottom: 5px;'>Progression Héros</h4>";
+    echo "<div style='font-size: 2em; text-align:center; margin-bottom:10px; color:#1abc9c;'>{$global_percent}%</div>";
+    echo "<table style='width:100%; font-size:0.85em; border-collapse:collapse;'>
+            <thead>
+                <tr style='color:#bdc3c7;'>
+                    <th style='text-align:left;'>Héros</th>
+                    <th>Niveau</th>
+                    <th style='text-align:right;'>%</th>
+                </tr>
+            </thead>
+            <tbody>{$rows_html}</tbody>
+        </table>";
+    echo "</div>";
+}
+
+
+/**
  * Rendu de l'onglet Monument Mystique
  */
 function renderMysticMonument($current_mm_level, $all_bonuses, $user_bonuses) {
@@ -708,13 +906,154 @@ function renderMysticMonument($current_mm_level, $all_bonuses, $user_bonuses) {
  * avec un coût unique en Jetons de recherche (au lieu de Or/Temps) et un
  * tableau détaillé des coûts par niveau, repliable sous la carte.
  */
+/**
+ * Insère, pour un joueur donné, une ligne "placeholder" (niveau=0, Debloque=0)
+ * dans progress_tribs pour chaque tribu qui devient éligible à un nouveau niveau
+ * de Radar (Salle des cartes, TID_BUILDING_MAP_ROOM / id_building 14), si cette
+ * ligne n'existe pas déjà. Le joueur devra ensuite cliquer sur "Débloquer" dans
+ * la page Tribus pour faire passer Debloque à 1 (voir upgrade_tribs.php).
+ *
+ * À appeler juste après avoir persisté une amélioration du Radar dans
+ * progress_building, par exemple dans upgrade_building.php :
+ *
+ *     if ((int)$id_building === 14) {
+ *         seedTribusUnlockRows($pdo, $id_player, $target_level);
+ *     }
+ */
+function seedTribusUnlockRows($pdo, $id_player, $new_radar_level) {
+    try {
+        $stmt_eligible = $pdo->prepare("SELECT id FROM tribsid WHERE RadarLvlReq <= ?");
+        $stmt_eligible->execute([(int)$new_radar_level]);
+        $eligible_ids = $stmt_eligible->fetchAll(PDO::FETCH_COLUMN);
+
+        if (empty($eligible_ids)) return;
+
+        $stmt_check  = $pdo->prepare("SELECT 1 FROM progress_tribs WHERE id_player = ? AND id_trib = ?");
+        $stmt_insert = $pdo->prepare("INSERT INTO progress_tribs (id_player, id_trib, niveau, Debloque) VALUES (?, ?, 0, 0)");
+
+        foreach ($eligible_ids as $id_trib) {
+            $stmt_check->execute([$id_player, $id_trib]);
+            if (!$stmt_check->fetch()) {
+                $stmt_insert->execute([$id_player, $id_trib]);
+            }
+        }
+    } catch (PDOException $e) {
+        error_log("Erreur seedTribusUnlockRows : " . $e->getMessage());
+    }
+}
+
+/**
+ * Rendu de la page "Tribus". Chaque tribu se débloque à partir d'un niveau
+ * de Radar (Salle des cartes, TID_BUILDING_MAP_ROOM / id_building 14) donné
+ * par tribsid.RadarLvlReq (voir queries.php, bloc 13). Coût en Cristaux bruts
+ * + temps, comme les bâtiments — d'où la réutilisation du design 'building-card'.
+ *
+ * Deux états bien distincts :
+ *   - radar_ok = false  -> Radar pas encore assez haut, carte grisée "Verrouillé"
+ *   - radar_ok = true, debloque = false -> carte visible, bouton "Débloquer"
+ *   - debloque = true   -> tribu active, bouton "Améliorer" (ou "Max !")
+ */
+function renderTribusTable($tribus_list) {
+    if (empty($tribus_list)) {
+        echo "<p class='empty-msg'>Aucune tribu n'a été trouvée.</p>";
+        return;
+    }
+
+    renderHideMaxedToggle('les tribus');
+
+    echo "<div class='buildings-grid hide-maxed-container'>";
+
+    foreach ($tribus_list as $trb) {
+        $id_trib  = (int)($trb['id_trib'] ?? 0);
+        $tid      = $trb['TID'] ?? '';
+
+        $nom_raw  = $trb['nom'] ?? $tid;
+        $nom      = htmlspecialchars(is_array($nom_raw) ? reset($nom_raw) : $nom_raw);
+
+        $icon_raw = $trb['IconExportName'] ?? 'default-building';
+        $icon     = htmlspecialchars(is_array($icon_raw) ? reset($icon_raw) : $icon_raw);
+
+        $niv      = (int)($trb['niveau_actuel'] ?? 0);
+        $max      = (int)($trb['niveau_max'] ?? 5);
+
+        $radar_req    = (int)($trb['RadarLvlReq'] ?? 0);
+        $radar_actuel = (int)($trb['radar_actuel'] ?? 0);
+        $radar_ok     = !empty($trb['radar_ok']);
+        $debloque     = !empty($trb['debloque']);
+        $is_maxed     = ($debloque && $niv >= $max);
+        $maxed_attr   = $is_maxed ? "1" : "0";
+
+        $costs     = $trb['costs'] ?? [];
+        $next_lvl  = $niv + 1;
+        $next_cost = $costs[$next_lvl] ?? null;
+
+        $safe_id      = "trb-" . preg_replace('/[^a-zA-Z0-9]/', '', $tid) . "-{$id_trib}";
+        $display_text = !$debloque ? "Non débloquée" : "Niveau {$niv}";
+        $locked_class = !$radar_ok ? ' unit-locked' : '';
+
+        echo "
+        <div class='building-card{$locked_class}' id='card-{$safe_id}' data-tid='{$tid}' data-id-trib='{$id_trib}' data-maxed='{$maxed_attr}'>
+            <div class='building-card-visual'>
+                <img class='building-card-img' src='images/{$icon}.webp' alt='{$nom}' onerror=\"this.src='images/default-building.png'\">
+            </div>
+
+            <div class='building-card-info'>
+                <span class='building-card-name'>{$nom}</span>
+                <span class='building-card-level' id='lvl-{$safe_id}'>{$display_text} / {$max}</span>
+            </div>";
+
+        if (!$radar_ok) {
+            echo "
+            <div class='troop-card-requirement' style='color:#e74c3c; font-size:0.85em; font-weight:600; margin:8px 0; text-align:center;'>
+                🔒 Radar niv. {$radar_req} requis (actuel : niv. {$radar_actuel})
+            </div>";
+        } elseif ($debloque && !$is_maxed && $next_cost) {
+            $temps_txt = formatUnitsTime(($next_cost['time_min'] ?? 0) / 60);
+            echo "
+            <div class='building-card-costs'>
+                <span class='building-cost-item'><img class='building-cost-icon' src='images/icons/Raw Crystals.png' alt='Cristaux bruts' onerror=\"this.src='images/default.png'\">{$next_cost['cost']}</span>
+            </div>
+            <div class='building-card-time'>
+                <img class='building-time-icon' src='images/icons/Time Icon.png' alt='Temps'>{$temps_txt}
+            </div>";
+        }
+
+        if (!$radar_ok) {
+            $disabled = "disabled";
+            $btn_text = "Verrouillé";
+        } elseif ($is_maxed) {
+            $disabled = "disabled";
+            $btn_text = "Max !";
+        } elseif (!$debloque) {
+            $disabled = "";
+            $btn_text = "Débloquer";
+        } else {
+            $disabled = "";
+            $btn_text = "Améliorer";
+        }
+
+        echo "
+            <div class='building-card-action'>
+                <button class='btn-upgrade' {$disabled}
+                        onclick=\"triggerUpgradeTribu({$id_trib}, '{$safe_id}', {$max})\">
+                    <span class='btn-text'>{$btn_text}</span>
+                </button>
+            </div>
+        </div>";
+    }
+
+    echo "</div>";
+}
+
 function renderEngravingsTable($engravings, $cat_color = "#1abc9c") {
     if (empty($engravings)) {
         echo "<p class='empty-msg'>Aucune gravure n'a été trouvée dans cette catégorie.</p>";
         return;
     }
 
-    echo "<div class='troops-grid'>";
+    renderHideMaxedToggle('les gravures');
+
+    echo "<div class='troops-grid hide-maxed-container'>";
 
     foreach ($engravings as $e) {
         $id_engraving = (int)($e['id_engraving'] ?? 0);
@@ -738,6 +1077,7 @@ function renderEngravingsTable($engravings, $cat_color = "#1abc9c") {
         $niv     = (int)($e['niveau_actuel'] ?? 0);
         $max     = (int)($e['niveau_max'] ?? 10);
         $is_maxed = ($niv >= $max);
+        $maxed_attr = $is_maxed ? "1" : "0";
 
         // Coûts en Jetons de recherche, indexés par palier de qualité : [1 => 50, 2 => 120, ...]
         $costs = $e['costs'] ?? [];
@@ -753,7 +1093,7 @@ function renderEngravingsTable($engravings, $cat_color = "#1abc9c") {
         $btn_text = $is_maxed ? "Max !" : (($niv === 0) ? "Débloquer" : "Améliorer");
 
         echo "
-        <div class='troop-card' id='card-{$safe_id}' data-tid='{$tid}' data-id-engraving='{$id_engraving}' style='border-top: 3px solid {$cat_color};'>
+        <div class='troop-card' id='card-{$safe_id}' data-tid='{$tid}' data-id-engraving='{$id_engraving}' data-maxed='{$maxed_attr}' style='border-top: 3px solid {$cat_color};'>
             <div class='troop-card-visual'>
                 <img class='troop-card-img' src='images/engravings/{$icon}.png' alt='{$nom}' onerror=\"this.src='images/engravings/{$icon}.webp'\">
             </div>
@@ -843,60 +1183,124 @@ function renderEngravingsTable($engravings, $cat_color = "#1abc9c") {
  * $stats_buildings et $stats_troupes attendent un tableau ['current' => int, 'max' => int, 'percent' => float]
  * (ex. retour de getCategoryStats()).
  */
-function renderMainDashboard($stats_buildings, $stats_troupes, $chefs_debloques, $chefs_total) {
-    $chefs_percent = ($chefs_total > 0) ? round(($chefs_debloques / $chefs_total) * 100) : 0;
+function renderMainDashboard(
+    $stats_buildings, $stats_res, $stats_def, $stats_army,
+    $stats_troupes_proto, $stats_heros, $stats_officiers_capa, $chefs_debloques, $chefs_total,
+    $stats_capacanon,
+    $stats_gravures, $stats_gravures_off, $stats_gravures_def,
+    $stats_tribus, $stats_monument
+) {
+    // % global "Armée" : agrégation de Troupes+Proto, Héros, Capacités des Chefs et Capacités de canonnière
+    $armee_current = $stats_troupes_proto['current'] + $stats_heros['current'] + $stats_officiers_capa['current'] + $stats_capacanon['current'];
+    $armee_max     = $stats_troupes_proto['max'] + $stats_heros['max'] + $stats_officiers_capa['max'] + $stats_capacanon['max'];
+    $armee_percent = ($armee_max > 0) ? round(($armee_current / $armee_max) * 100, 1) : 0;
 
-    echo "
-    <div class='dashboard-container'>
-        <h2>Tableau de Bord</h2>
-        <div class='overview-cards-grid'>";
+    echo "<div class='dashboard-container'><h2>Tableau de Bord</h2>";
 
-    echo renderOverviewCard(
-        '🏗️',
-        'Bâtiments',
-        $stats_buildings['current'],
-        $stats_buildings['max'],
-        $stats_buildings['percent'],
-        round($stats_buildings['percent']) . '% des niveaux construits',
-        'Building-Ressource'
-    );
+    // ================= SECTION BÂTIMENTS =================
+    echo "<div class='dash-section'>";
+    renderDashSectionHeader('🏗️', 'Bâtiments', $stats_buildings['percent'], 'Building-Overview');
+    echo "<div class='dash-subcards-row'>";
+    echo renderDashSubcard('🏦', 'Économie', $stats_res['current'], $stats_res['max'], $stats_res['percent'], round($stats_res['percent']) . '% construit', 'Building-Ressource');
+    echo renderDashSubcard('🛡️', 'Défense', $stats_def['current'], $stats_def['max'], $stats_def['percent'], round($stats_def['percent']) . '% construit', 'Building-Defense');
+    echo renderDashSubcard('🏰', 'Renfort', $stats_army['current'], $stats_army['max'], $stats_army['percent'], round($stats_army['percent']) . '% construit', 'Building-Army');
+    echo "</div></div>";
 
-    echo renderOverviewCard(
-        '⚔️',
-        'Troupes',
-        $stats_troupes['current'],
-        $stats_troupes['max'],
-        $stats_troupes['percent'],
-        round($stats_troupes['percent']) . '% de progression',
-        'Character-Troop'
-    );
+    // ================= SECTION ARMÉE =================
+    echo "<div class='dash-section'>";
+    renderDashSectionHeader('⚔️', 'Armée', $armee_percent, 'Army-Overview');
 
-    echo renderOverviewCard(
+    echo "<div class='dash-subcards-row'>";
+    echo renderDashSubcard('🪖', 'Troupes & Proto-troupes', $stats_troupes_proto['current'], $stats_troupes_proto['max'], $stats_troupes_proto['percent'], round($stats_troupes_proto['percent']) . '% de progression', 'Character-Troop');
+    echo renderDashSubcard('🦸', 'Héros', $stats_heros['current'], $stats_heros['max'], $stats_heros['percent'], round($stats_heros['percent']) . '% de progression', 'Character-Hero');
+    echo renderDashSubcard('🚤', 'Capacité de canonnière', $stats_capacanon['current'], $stats_capacanon['max'], $stats_capacanon['percent'], round($stats_capacanon['percent']) . '% de progression', 'Character-Spell');
+    echo "</div>";
+
+    echo "<div class='dash-subcards-row'>";
+    echo renderDashSubcard(
         '🎖️',
-        'Chefs débloqués',
-        $chefs_debloques,
-        $chefs_total,
-        $chefs_percent,
-        "{$chefs_debloques} / {$chefs_total} officiers débloqués",
-        'Character-Leader'
-    );
-
-    // Capacité de canonnière : fonctionnalité pas encore développée en base,
-    // la carte est affichée en avance (grisée, non cliquable) pour préparer le terrain.
-    echo renderOverviewCard(
-        '🚤',
-        'Capacité de canonnière',
-        0,
-        0,
-        0,
-        'Bientôt disponible',
-        null,
+        'Chefs de bataillon',
+        $stats_officiers_capa['current'],
+        $stats_officiers_capa['max'],
+        $stats_officiers_capa['percent'],
+        "{$chefs_debloques} / {$chefs_total} chefs débloqués — niveaux de capacités (talents non comptés)",
+        'Character-Leader',
+        false,
         true
     );
+    echo "</div>";
+    echo "</div>";
+
+    // ================= SECTION GRAVURES =================
+    echo "<div class='dash-section'>";
+    renderDashSectionHeader('🪶', 'Gravures', $stats_gravures['percent'], 'Engraving-Overview');
+    echo "<div class='dash-subcards-row'>";
+    echo renderDashSubcard('🗡️', 'Gravures Offensives', $stats_gravures_off['current'], $stats_gravures_off['max'], $stats_gravures_off['percent'], "{$stats_gravures_off['current']} / {$stats_gravures_off['max']} débloquées", 'Engraving-Offensive');
+    echo renderDashSubcard('🛡️', 'Gravures Défensives', $stats_gravures_def['current'], $stats_gravures_def['max'], $stats_gravures_def['percent'], "{$stats_gravures_def['current']} / {$stats_gravures_def['max']} débloquées", 'Engraving-Defensive');
+    echo "</div></div>";
+
+    // ================= SECTION AUTRES =================
+    echo "<div class='dash-section'>";
+    renderDashSectionHeader('✨', 'Autres');
+    echo "<div class='dash-subcards-row'>";
+    echo renderDashSubcard('🏝️', 'Tribus', $stats_tribus['current'], $stats_tribus['max'], $stats_tribus['percent'], "{$stats_tribus['debloquees']} tribus débloquées, dont {$stats_tribus['total']} max", 'Tribes');
+    echo renderDashSubcard('🗿', 'Monument mystique', $stats_monument['level'], $stats_monument['max_level'], $stats_monument['percent'], "{$stats_monument['bonus_obtenus']} / {$stats_monument['bonus_total']} bonus obtenus", 'Monument');
+    echo "</div></div>";
+
+    echo "</div>"; // .dashboard-container
+}
+
+/**
+ * En-tête de section du Tableau de Bord : titre + (optionnellement) un pourcentage
+ * global et sa barre de progression. Cliquable si $target_tab est fourni.
+ */
+function renderDashSectionHeader($icon, $title, $percent = null, $target_tab = null) {
+    $onclick_attr = $target_tab ? " onclick=\"showTab('{$target_tab}')\"" : "";
+    $header_class = $target_tab ? 'dash-section-header clickable' : 'dash-section-header';
+    $arrow_html   = $target_tab ? "<span class='dash-section-arrow'>›</span>" : "";
+
+    $percent_html = "";
+    $track_html   = "";
+    if ($percent !== null) {
+        $percent_safe = max(0, min(100, (float)$percent));
+        $percent_html = "<div class='dash-section-percent'>{$percent_safe}%</div>";
+        $track_html   = "<div class='dash-section-track'><div class='dash-section-fill' style='width: {$percent_safe}%;'></div></div>";
+    }
 
     echo "
-        </div>
-    </div>";
+    <div class='{$header_class}'{$onclick_attr}>
+        <div class='dash-section-title'><span class='dash-section-icon'>{$icon}</span><span>" . htmlspecialchars($title) . "</span></div>
+        <div style='display:flex; align-items:center;'>{$percent_html}{$arrow_html}</div>
+    </div>
+    {$track_html}";
+}
+
+/**
+ * Carte compacte utilisée dans les sous-sections du Tableau de Bord
+ * (ex: Économie/Défense/Renfort sous "Bâtiments"). Même logique que
+ * renderOverviewCard, mais gabarit plus petit pensé pour être groupé par section.
+ */
+function renderDashSubcard($icon, $title, $current, $max, $percent, $subtitle, $target_tab = null, $disabled = false, $full_width = false) {
+    $classes = 'dash-subcard';
+    if ($full_width) $classes .= ' full-width';
+    if ($disabled) $classes .= ' disabled';
+    if ($target_tab && !$disabled) $classes .= ' clickable';
+
+    $onclick_attr  = ($target_tab && !$disabled) ? " onclick=\"showTab('{$target_tab}')\"" : "";
+    $soon_badge    = $disabled ? "<span class='dash-subcard-badge'>Bientôt</span>" : "";
+    $value_display = $disabled ? "—" : "{$current}<span class='value-max'> / {$max}</span>";
+    $percent_safe  = max(0, min(100, (float)$percent));
+
+    return "
+        <div class='{$classes}'{$onclick_attr}>
+            <div class='dash-subcard-top'>
+                <div class='dash-subcard-title'><span>{$icon}</span><span>" . htmlspecialchars($title) . "</span></div>
+                {$soon_badge}
+            </div>
+            <div class='dash-subcard-value'>{$value_display}</div>
+            <div class='dash-subcard-track'><div class='dash-subcard-fill' style='width: {$percent_safe}%;'></div></div>
+            <div class='dash-subcard-sub'>" . htmlspecialchars($subtitle) . "</div>
+        </div>";
 }
 
 /**
@@ -913,8 +1317,7 @@ function renderOverviewCard($icon, $title, $current, $max, $percent, $subtitle, 
 
     return "
         <div class='overview-card{$disabled_class}'{$onclick_attr}>
-            <div class='overview-card-header'>
-                <div class='overview-card-icon'>{$icon}</div>
+            <div class='overview-card-header'>{$icon}
                 <div class='overview-card-title'>" . htmlspecialchars($title) . "</div>
                 {$soon_badge}
             </div>

@@ -8,6 +8,7 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 
 require_once 'config.php';
+require_once 'functions.php'; // Pour seedTribusUnlockRows()
 header('Content-Type: application/json');
 
 $id_player = $_SESSION['player_id'] ?? null;
@@ -77,6 +78,15 @@ try {
     }
 
     $pdo->commit();
+
+    // Le Radar (id_building = 14, "Salle des cartes") conditionne le déblocage des Tribus.
+    // À chaque amélioration du Radar, on pré-remplit progress_tribs (niveau=0, Debloque=0)
+    // pour toute tribu nouvellement éligible ; le joueur cliquera ensuite sur "Débloquer"
+    // dans la page Tribus pour faire passer Debloque à 1 (voir upgrade_tribs.php).
+    if ($id_building === 14) {
+        seedTribusUnlockRows($pdo, $id_player, $target_level);
+    }
+
     echo json_encode(['success' => true, 'message' => 'Mise à jour réussie.']);
 
 } catch (Exception $e) {

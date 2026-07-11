@@ -655,6 +655,8 @@ window.triggerUpgradeCharacter = function(tid, safeId, maxLvl) {
         }
     })
     .catch(error => {
+        if (error.name === 'AbortError') return; // reload() a coupé la requête : rien d'anormal
+
         console.error("Erreur réseau :", error);
         alert("Une erreur est survenue lors de la communication avec le serveur.");
     });
@@ -803,6 +805,10 @@ function triggerUpgradeBuilding(tid, idInstance, niveauActuel, niveauMax, safeId
         }
     })
     .catch(err => {
+        // location.reload() (juste au-dessus, en cas de succès) coupe net toutes les requêtes
+        // encore en vol au moment du rechargement. Le navigateur remonte ça comme un "AbortError",
+        // ce n'est PAS une vraie erreur réseau : on l'ignore silencieusement.
+        if (err.name === 'AbortError') return;
         console.error('Erreur triggerUpgradeBuilding:', err);
         alert("Erreur réseau, réessaie.");
         if (btn) btn.disabled = false;
@@ -841,6 +847,54 @@ window.toggleCostTable = function(safeId) {
         const icon = chevron.querySelector('.chevron-icon');
         if (icon) icon.textContent = isOpen ? '🔼' : '🔽';
     }
+};
+
+window.triggerUpgradeTribu = function(idTrib, safeId, maxLvl) {
+    const displayElement = document.getElementById('lvl-' + safeId);
+    if (!displayElement) return;
+
+    const formData = new FormData();
+    formData.append('id_trib', idTrib);
+
+    fetch('upgrade_tribs.php', { method: 'POST', body: formData })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            const newLvl = data.new_level;
+
+            // 1. Mettre à jour l'affichage du niveau principal
+            displayElement.innerText = "Niveau " + newLvl + " / " + maxLvl;
+
+            // 2. Changer le texte du bouton, et le désactiver si le niveau max est atteint
+            const card = document.getElementById('card-' + safeId);
+            const btn = card ? card.querySelector('.btn-upgrade') : null;
+            const btnText = card ? card.querySelector('.btn-text') : null;
+            const isMaxed = newLvl >= maxLvl;
+
+            if (btnText) {
+                btnText.innerText = isMaxed ? "Max !" : "Améliorer";
+            }
+            if (btn && isMaxed) {
+                btn.disabled = true;
+            }
+
+            // 3. Si le niveau max est atteint, on masque le bloc coûts/temps du prochain palier
+            if (isMaxed) {
+                const costsBlock = card ? card.querySelector('.building-card-costs') : null;
+                const timeBlock = card ? card.querySelector('.building-card-time') : null;
+                if (costsBlock) costsBlock.style.display = 'none';
+                if (timeBlock) timeBlock.style.display = 'none';
+            }
+
+            console.log("Succès :", data.message);
+        } else {
+            alert("Erreur serveur : " + data.message);
+        }
+    })
+    .catch(error => {
+        console.error("Erreur réseau :", error);
+        alert("Une erreur est survenue lors de la communication avec le serveur.");
+    });
 };
 
 window.triggerUpgradeEngraving = function(idEngraving, safeId, maxLvl) {
@@ -1211,6 +1265,62 @@ document.addEventListener("DOMContentLoaded", function() {
                 button.disabled = false;
                 button.innerHTML = "<img src='images/icons/gacha_info_icon.png' style='width: 25px;'>";
             });
+        }
+    });
+});
+// ==========================================================================
+// MASQUER LES ÉLÉMENTS AU NIVEAU MAX (bâtiments, troupes, tribus, gravures)
+// ==========================================================================
+// Gestion du bouton "Masquer les éléments au max"
+window.toggleHideMaxed = function(btn) {
+    const tabContent = btn.closest('.tab-content');
+    if (!tabContent) return;
+
+    const isHidden = btn.classList.toggle('active');
+    const containers = tabContent.querySelectorAll('.hide-maxed-container');
+
+    containers.forEach(container => {
+        container.classList.toggle('maxed-hidden', isHidden);
+    });
+
+    // Mise à jour du label
+    const label = btn.querySelector('.hide-maxed-label');
+    if (label) {
+        const currentText = label.textContent;
+        const newText = isHidden
+            ? currentText.replace('Masquer', 'Afficher')
+            : currentText.replace('Afficher', 'Masquer');
+        label.textContent = newText;
+    }
+
+    // Mémorisation dans localStorage
+    try {
+        localStorage.setItem('hideMaxed_' + tabContent.id, isHidden ? '1' : '0');
+    } catch (e) {
+        console.warn("localStorage indisponible :", e);
+    }
+};
+
+// Restaurer l'état au chargement de la page
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.tab-content').forEach(tab => {
+        try {
+            const isHidden = localStorage.getItem('hideMaxed_' + tab.id) === '1';
+            if (isHidden) {
+                const btn = tab.querySelector('.btn-hide-maxed');
+                if (btn) {
+                    btn.classList.add('active');
+                    const label = btn.querySelector('.hide-maxed-label');
+                    if (label) {
+                        label.textContent = label.textContent.replace('Masquer', 'Afficher');
+                    }
+                }
+                tab.querySelectorAll('.hide-maxed-container').forEach(container => {
+                    container.classList.add('maxed-hidden');
+                });
+            }
+        } catch (e) {
+            console.warn("Erreur restauration hideMaxed :", e);
         }
     });
 });
