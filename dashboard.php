@@ -118,9 +118,10 @@ $bb_languages = [
                             <span class="menu-caret">▾</span>
                         </div>
                         <ul class="submenu" style="display: none;">
-                            <li><button class="nav-button" onclick="showTab('Building-Ressource')">Bâtiments économiques</button></li>
-                            <li><button class="nav-button" onclick="showTab('Building-Defense')">Bâtiments Défensifs</button></li>
-                            <li><button class="nav-button" onclick="showTab('Building-Army')">Bâtiments de support</button></li>
+                            <li><button class="nav-button" onclick="showTab('Building-Ressource')">Économiques</button></li>
+                            <li><button class="nav-button" onclick="showTab('Building-Defense')">Défensifs</button></li>
+                            <li><button class="nav-button" onclick="showTab('Building-Army')">Support</button></li>
+                            <li><button class="nav-button" onclick="showTab('Building-Trap')">Pièges</button></li>
                         </ul>
                     </div>
 
@@ -255,12 +256,14 @@ $bb_languages = [
             $stats_res = getCategoryStats($buildings_display['Ressource'] ?? []);
             $stats_def = getCategoryStats($buildings_display['Defense'] ?? []);
             $stats_army = getCategoryStats($buildings_display['Army'] ?? []);
+            $stats_trap = getCategoryStats($buildings_display['Trap'] ?? []);
 
             // --- Stats globales pour le Tableau de Bord principal ---
             $all_buildings_flat = array_merge(
                 $buildings_display['Ressource'] ?? [],
                 $buildings_display['Defense'] ?? [],
-                $buildings_display['Army'] ?? []
+                $buildings_display['Army'] ?? [],
+                $buildings_display['Trap'] ?? []
             );
             $stats_buildings_global = getCategoryStats($all_buildings_flat);
 
@@ -331,7 +334,7 @@ $bb_languages = [
 
         <div id="Dashboard" class="tab-content">
             <?php renderMainDashboard(
-                $stats_buildings_global, $stats_res, $stats_def, $stats_army,
+                $stats_buildings_global, $stats_res, $stats_def, $stats_army, $stats_trap,
                 $stats_troupes_proto, $stats_heros, $stats_officiers_capa, $chefs_debloques, $chefs_total,
                 $stats_capacanon,
                 $stats_gravures, $stats_gravures_off, $stats_gravures_def,
@@ -344,6 +347,7 @@ $bb_languages = [
                 ['label' => 'Bâtiments économiques', 'sub' => round($stats_res['percent']) . '% complété', 'tab' => 'Building-Ressource', 'icon' => '🏦'],
                 ['label' => 'Bâtiments défensifs',  'sub' => round($stats_def['percent']) . '% complété',  'tab' => 'Building-Defense', 'icon' => '🛡️'],
                 ['label' => 'Bâtiments de support',  'sub' => round($stats_army['percent']) . '% complété', 'tab' => 'Building-Army',    'icon' => '🏰'],
+                ['label' => 'Pièges',  'sub' => round($stats_trap['percent']) . '% complété', 'tab' => 'Building-Trap',    'icon' => '💣'],
             ]); ?>
         </div>
 
@@ -393,10 +397,22 @@ $bb_languages = [
         <h2>Bâtiments de support</h2>
             <div class="dashboard-wrapper" style="display: flex; gap: 20px; align-items: flex-start;">
                 <div style="flex: 3;">
-                    <?php renderBuildingsTable(['Bâtiments de support' => $buildings_display['Army'] ?? []]); ?>
+                    <?php renderBuildingsTable(['Army' => $buildings_display['Army'] ?? []]); ?>
                 </div>
                 <div style="flex: 1;">
                     <?php renderStatsSidebar('Bâtiments de support', $buildings_display['Army'] ?? [], $stats_army); ?>
+                </div>
+            </div>
+        </div>
+
+        <div id="Building-Trap" class="tab-content">
+        <h2>Pièges</h2>
+            <div class="dashboard-wrapper" style="display: flex; gap: 20px; align-items: flex-start;">
+                <div style="flex: 3;">
+                    <?php renderBuildingsTable(['Trap' => $buildings_display['Trap'] ?? []]); ?>
+                </div>
+                <div style="flex: 1;">
+                    <?php renderStatsSidebar('Pièges', $buildings_display['Trap'] ?? [], $stats_trap); ?>
                 </div>
             </div>
         </div>

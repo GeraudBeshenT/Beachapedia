@@ -40,40 +40,60 @@ try {
         }
     }
 
-    // --- SECTION BÂTIMENTS (Nouvelle logique) ---
-    // On récupère le TID des bâtiments débloqués pour ce niveau de QG
-    // --- SECTION BÂTIMENTS (Logique filtrée et corrigée) ---
-    $stmt_b = $pdo->prepare("
-        SELECT v.TID, b.id as id_building, v.Amount as id_instance 
-        FROM v_all_unlocks v
-        INNER JOIN buildingid b ON v.TID = b.TID
-        LEFT JOIN progress_building pb ON pb.id_building = b.id 
-                                       AND pb.id_player = ? 
-                                       AND pb.id_instance = v.Amount
-        WHERE v.TownHallLevel = ?
-        AND v.Amount > 0
-        AND (pb.id_building IS NULL)
-    ");
-    
-    // Ici, il faut DEUX paramètres : 
-    // 1. L'id_player (pour le LEFT JOIN)
-    // 2. Le new_qg (pour le WHERE)
-    $stmt_b->execute([$_SESSION['player_id'], $new_qg]); 
-    $batiments = $stmt_b->fetchAll(PDO::FETCH_ASSOC);
+    // --- SECTION BÂTIMENTS (Nouvelle logique basée sur townhall_levels) ---
+    // v_all_unlocks n'existe plus. On lit directement la ligne du QG obtenu dans
+    // townhall_levels : chaque colonne "TID_xxx" contient le nombre CUMULÉ d'instances
+    // débloquées à ce niveau (ex: TID_BUILDING_LANDING_SHIP = 3 => les instances 1, 2 et 3
+    // doivent exister pour ce joueur). On complète donc les instances manquantes.
+    $stmt_th = $pdo->prepare("SELECT * FROM townhall_levels WHERE TownHallLevel = ?");
+    $stmt_th->execute([$new_qg]);
+    $qg_row = $stmt_th->fetch(PDO::FETCH_ASSOC);
 
-    if (!empty($batiments)) {
+    if ($qg_row) {
+        // Colonnes de la table qui ne représentent pas des bâtiments
+        $colonnes_ignorees = [
+            'TownHallLevel', 'XP', 'RequiredBuilding',
+            'RequiredBuildingLevel', 'RequiredTroopLevel', 'MaterialSlots'
+        ];
+
+        // Mapping TID (colonne) -> id_building
+        $tid_to_id = [];
+        foreach ($pdo->query("SELECT id, TID FROM buildingid")->fetchAll(PDO::FETCH_ASSOC) as $b) {
+            $tid_to_id[$b['TID']] = $b['id'];
+        }
+
+        // Instances déjà présentes pour ce joueur (pour ne rien insérer en double)
+        $stmt_existing = $pdo->prepare("SELECT id_building, id_instance FROM progress_building WHERE id_player = ?");
+        $stmt_existing->execute([$_SESSION['player_id']]);
+        $existing = [];
+        foreach ($stmt_existing->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $existing[$row['id_building'] . '_' . $row['id_instance']] = true;
+        }
+
         $stmt_ins_b = $pdo->prepare("
-            INSERT IGNORE INTO progress_building (id_player, id_building, id_instance, niveau, Debloque) 
+            INSERT INTO progress_building (id_player, id_building, id_instance, niveau, Debloque)
             VALUES (?, ?, ?, 0, 0)
         ");
-        
-        foreach ($batiments as $bat) {
-            // Ici, il faut TROIS paramètres qui correspondent aux trois '?'
-            $stmt_ins_b->execute([
-                $_SESSION['player_id'], 
-                $bat['id_building'], 
-                $bat['id_instance']
-            ]);
+
+        foreach ($qg_row as $colonne => $valeur) {
+            if (in_array($colonne, $colonnes_ignorees, true)) {
+                continue;
+            }
+            if (!isset($tid_to_id[$colonne])) {
+                // Colonne qui n'a pas d'équivalent dans buildingid (ex: pièges TID_TRAP_*)
+                continue;
+            }
+
+            $id_building = $tid_to_id[$colonne];
+            $nb_instances = (int)$valeur;
+
+            for ($id_instance = 1; $id_instance <= $nb_instances; $id_instance++) {
+                $cle = $id_building . '_' . $id_instance;
+                if (!isset($existing[$cle])) {
+                    $stmt_ins_b->execute([$_SESSION['player_id'], $id_building, $id_instance]);
+                    $existing[$cle] = true; // évite les doublons dans la même boucle
+                }
+            }
         }
     }
 

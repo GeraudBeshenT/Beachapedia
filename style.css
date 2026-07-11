@@ -548,6 +548,55 @@ button.btn-upgrade-talent {
     width: 50%;
 }
 
+/* Ancrage pour styler indépendamment les cartes Héros et Officiers
+   (ex: .unit-card-hero{...} / .unit-card-officer{...}) */
+
+
+/* Coût + temps du prochain niveau de héros, affiché entre unit-details et le bouton,
+   à l'intérieur de unit-info-wrapper */
+.hero-upgrade-cost{
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-top: 6px;
+    font-weight: 600;
+    color: #ecf0f1;
+}
+.hero-cost-item,
+.hero-time-item{
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+.hero-cost-icon,
+.hero-time-icon{
+    width: 18px;
+    vertical-align: middle;
+}
+
+
+/* Les héros ont 3 capacités affichées côte à côte (contrairement aux officiers,
+   qui n'en ont que 2 empilées : active + passive) */
+.hero-ability-columns{
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    background: rgba(0,0,0,0.2);
+    padding: 10px;
+    border-radius: 6px;
+    margin-top: 5px;
+    width: 100%;
+}
+.hero-ability-column{
+    flex: 1;
+    min-width: 0;
+}
+@media (max-width: 768px) {
+    .hero-ability-columns{
+        flex-direction: column;
+    }
+}
+
 .officer-ability-row{
     display: flex;
     align-items: center;
