@@ -279,7 +279,12 @@ function getOfficersCapaciteStats($pdo, $id_player, $officers_list) {
         // -1 car le niveau 1 correspond à "pas encore amélioré" (cohérent avec renderLeadersStatsSidebar)
         $current += ($passive_lvl !== null) ? ($passive_lvl - 1) : 0;
         $current += ($active_lvl  !== null) ? ($active_lvl - 1)  : 0;
-        $max     += 14 + 14; // 14 niveaux max par capacité (passive + active) ; talents volontairement exclus
+
+        // Plafond réel de chaque capacité (gère les paliers "terminateurs" à UpgradeCost = 0,
+        // voir getAbilityRealMaxLevel) ; -1 pour la même raison que $current ci-dessus.
+        $passive_max_level = !empty($u['abilities']['passive']['levels']) ? getAbilityRealMaxLevel($u['abilities']['passive']['levels']) : 15;
+        $active_max_level  = !empty($u['abilities']['active']['levels'])  ? getAbilityRealMaxLevel($u['abilities']['active']['levels'])  : 15;
+        $max += ($passive_max_level - 1) + ($active_max_level - 1); // talents volontairement exclus
     }
 
     $percent = ($max > 0) ? round(($current / $max) * 100, 1) : 0;
@@ -399,7 +404,7 @@ function formatSecondsToText($seconds) {
  * représentant le niveau RÉEL construit par le joueur pour ces deux bâtiments.
  * (Non pertinent pour les listes d'Officiers/Héros, laisser à [] dans ce cas.)
  */
-function renderUnitsTable($data, $progress = [], $house_levels = []) {
+function renderUnitsTable($data, $progress = [], $house_levels = [], $pdo = null, $id_player = null) {
     if (empty($data)) {
         echo "<p class='empty-msg'>Aucune unité débloquée.</p>";
         return;
@@ -527,8 +532,9 @@ function renderUnitsTable($data, $progress = [], $house_levels = []) {
 
         // Overlay de déblocage si nécessaire
         if ($is_locked) {
+            $officer_nom_esc = htmlspecialchars(addslashes($u['nom'] ?? $tid), ENT_QUOTES);
             echo "<div class='unlock-overlay'>
-                    <button class='btn-unlock-officer' onclick=\"unlockOfficer({$u['id_character']})\">
+                    <button class='btn-unlock-officer' onclick=\"unlockOfficer({$u['id_character']}, '{$officer_nom_esc}')\">
                         Débloquer l'Officier
                     </button>
                   </div>";
@@ -598,23 +604,73 @@ function renderUnitsTable($data, $progress = [], $house_levels = []) {
                 </div>
             </div>";
 
-            if ($is_officer) {
-                // Rendu des Talents
-                $count = $u['total_talents_unlocked'] ?? 0;
-                $imageFile = "talent_{$count}_icon.png";
-                $can_upgrade = ($count < 5);
+            if ($is_officer && $pdo && $id_player) {
+    // 1. Compter les talents débloqués
+    $stmt_count = $pdo->prepare("
+        SELECT SUM(Debloque) as total_debloque
+        FROM progress_ability
+        WHERE id_player = ? AND id_character = ?
+        AND id_ability IN (
+            SELECT ai.id
+            FROM characterid ci
+            INNER JOIN officer_talents ot ON ot.TID = ci.TID
+            INNER JOIN abilitieid ai ON ai.TID IN (ot.TalentTID1, ot.TalentTID2, ot.TalentTID3, ot.TalentTID4, ot.TalentTID5)
+            WHERE ci.id = ?
+        )
+    ");
+    $stmt_count->execute([$id_player, $u['id_character'], $u['id_character']]);
+    $talents_debloques = max(0, min(5, (int)($stmt_count->fetchColumn() ?: 0)));
+    $imageFile = "talent_{$talents_debloques}_icon.png";
 
-                echo "<div class='officer-talent'>
-                    <img src='images/icons/{$imageFile}' style='width: 80px;' alt='Talents débloqués: {$count}'>
-                    <div class='talent-status'>
-                        <p class='talent-count'>Talents débloqués : {$count}/5</p>
-                        <button class='btn-upgrade-talent' data-character='{$u['id_character']}' data-ability='{$u['next_talent_id']}' " . (!$can_upgrade ? "disabled" : "") . " onclick=\"triggerUpgradeTalent(this)\">
-                            " . ($can_upgrade ? "Améliorer (Talent " . ($count + 1) . ")" : "Max !") . "
-                        </button>
-                    </div>
-                </div>";
+    // 2. Trouver le PROCHAIN talent à débloquer (le premier avec Debloque=0)
+    $next_talent_id = null;
+    $next_talent_nom = null;
+    $stmt_next = $pdo->prepare("
+        SELECT ai.id, ai.TID, t.FR AS nom
+        FROM characterid ci
+        INNER JOIN officer_talents ot ON ot.TID = ci.TID
+        INNER JOIN abilitieid ai ON ai.TID IN (ot.TalentTID1, ot.TalentTID2, ot.TalentTID3, ot.TalentTID4, ot.TalentTID5)
+        LEFT JOIN texts t ON t.TID = ai.TID
+        LEFT JOIN progress_ability pa ON pa.id_player = ? AND pa.id_character = ? AND pa.id_ability = ai.id
+        WHERE ci.id = ? AND ai.TID IS NOT NULL
+          AND (pa.Debloque IS NULL OR pa.Debloque = 0)
+        ORDER BY
+            CASE ai.TID
+                WHEN ot.TalentTID1 THEN 1
+                WHEN ot.TalentTID2 THEN 2
+                WHEN ot.TalentTID3 THEN 3
+                WHEN ot.TalentTID4 THEN 4
+                WHEN ot.TalentTID5 THEN 5
+            END
+        LIMIT 1
+    ");
+    $stmt_next->execute([$id_player, $u['id_character'], $u['id_character']]);
+    $next_talent = $stmt_next->fetch(PDO::FETCH_ASSOC);
+    if ($next_talent && ($talents_debloques < 5)) {
+        $next_talent_id = $next_talent['id'];
+        $next_talent_nom = $next_talent['nom'] ?: $next_talent['TID'];
+    }
 
-                // Rendu des Capacités (Active / Passive)
+    // 3. Affichage
+    echo "<div class='officer-talent' style='text-align: center; margin: 10px 0;'>
+            <img src='images/icons/{$imageFile}' style='width: 80px;' alt='Talents débloqués: {$talents_debloques}'>
+            <div class='talent-status'>
+                <p class='talent-count'>Talents débloqués : {$talents_debloques}/5</p>";
+
+    // 🔥 Bouton "Débloquer talent suivant" (seulement si un talent est disponible)
+    if ($next_talent_id && $talents_debloques < 5) {
+        $next_talent_nom_esc = htmlspecialchars($next_talent_nom, ENT_QUOTES);
+        echo "<button class='btn-unlock-talent' data-character='{$u['id_character']}' data-ability='{$next_talent_id}' data-tid='{$next_talent_nom_esc}'
+                      onclick='unlockTalent(this)' style='margin-top: 8px; padding: 6px 12px;'>
+                  Débloquer talent suivant
+              </button>";
+    } elseif ($talents_debloques >= 5) {
+        echo "<p style='color: #2ecc71; margin-top: 8px;'>Tous les talents débloqués !</p>";
+    }
+
+    echo "</div></div>";
+
+                // Rendu des Capacités (Active / Passive) - SANS les talents
                 echo "<div class='officer-ability'>";
                 foreach (['passive', 'active'] as $type) {
                     $talent = $u['abilities'][$type] ?? null;
@@ -644,25 +700,77 @@ function renderUnitsTable($data, $progress = [], $house_levels = []) {
  * pour être réutilisé à l'identique par les deux designs, avec un simple libellé de type
  * optionnel ("[active]"/"[passive]" pour les officiers, vide pour les héros).
  */
+/**
+ * Calcule le VRAI niveau max atteignable pour une capacité, à partir de sa liste de paliers
+ * officer_abilities (Niveau, UpgradeCost, ...).
+ *
+ * Convention des données (vérifiée sur la table réelle) : la ligne dont Niveau = niveau ACTUEL
+ * décrit le coût pour passer au niveau suivant. Certaines capacités ont, après leur dernier palier
+ * payant, une ou plusieurs lignes "terminateurs" avec UpgradeCost = 0 : elles ne représentent PAS
+ * un palier supplémentaire réel, juste "il n'y a plus rien à acheter à partir d'ici".
+ * On ne peut donc pas se fier à MAX(Niveau) brut (certaines capacités ont plusieurs lignes
+ * terminateurs consécutives avec un Niveau très supérieur au vrai plafond) : il faut simuler
+ * la progression pas à pas et s'arrêter au premier palier manquant OU à coût 0.
+ */
+function getAbilityRealMaxLevel($levels) {
+    if (empty($levels)) return 1;
+
+    $cost_by_niveau = [];
+    foreach ($levels as $row) {
+        $cost_by_niveau[(int)$row['Niveau']] = (float)($row['UpgradeCost'] ?? 0);
+    }
+
+    $level = 1;
+    while (isset($cost_by_niveau[$level]) && $cost_by_niveau[$level] > 0) {
+        $level++;
+    }
+    return $level;
+}
+
+/**
+ * Niveau max "table" d'une capacité, TERMINATEURS INCLUS (contrairement à
+ * getAbilityRealMaxLevel, qui s'arrête au premier palier à coût 0 = max réellement
+ * achetable). Certaines capacités d'officier ont volontairement des lignes
+ * supplémentaires à UpgradeCost = 0 au-delà du max achetable (ex. Niveau 12 achetable,
+ * puis 13/14/15 listés à coût 0) : ces niveaux existent pour être atteints via le bonus
+ * d'affichage du Talent 3 (+2 niveaux, voir queries.php), PAS pour être achetés. Le jeu
+ * fonctionne ainsi : le coût affiché reste calculé sur le niveau réel, mais le niveau
+ * affiché (sidebar chefs de bataillon + dashboard) doit pouvoir grimper jusqu'à ce vrai
+ * plafond de table.
+ */
+function getAbilityTableMaxLevel($levels) {
+    if (empty($levels)) return 1;
+    $niveaux = array_column($levels, 'Niveau');
+    return $niveaux ? (int)max($niveaux) : 1;
+}
+
 function renderOfficerAbilityRow($talent, $id_character, $current_lvl, $type_label) {
     $ab_id      = $talent['id_ability'];
     $ab_icon    = $talent['IconExportName'];
     $ab_tid     = $talent['TID'];
     $safe_ab_id = "ab-" . preg_replace('/[^a-zA-Z0-9]/', '', $ab_tid);
     $ab_lvl     = (int)$talent['current_level'];
+    // Niveau affiché au joueur (avec bonus talent 3 le cas échéant) — n'intervient QUE dans le
+    // texte "Niveau X" ; tout le calcul du prochain palier / coût reste basé sur $ab_lvl (réel).
+    $ab_lvl_display = (int)($talent['display_level'] ?? $ab_lvl);
 
-    $next_lvl = $ab_lvl + 1; // 🔥 On cherche le NIVEAU SUIVANT, pas l'actuel !
+    $next_lvl = $ab_lvl + 1; // le niveau qui sera atteint APRÈS l'amélioration (texte/affichage uniquement)
     $next_lvl_data = null;
     if (!empty($talent['levels'])) {
         foreach ($talent['levels'] as $row) {
-            if ((int)$row['Niveau'] === $next_lvl) {
+            // La ligne officer_abilities dont Niveau = niveau ACTUEL décrit le coût pour passer
+            // au niveau suivant (convention utilisée par upgrade_ability.php : WHERE Niveau =
+            // $current_ability_niveau).
+            if ((int)$row['Niveau'] === $ab_lvl) {
                 $next_lvl_data = $row;
                 break;
             }
         }
     }
+    // Un palier avec UpgradeCost = 0 (ou absent) est un "terminateur" : il ne s'agit pas d'un
+    // vrai palier supplémentaire, juste du marqueur "rien de plus à acheter à partir d'ici".
+    $is_max = ($next_lvl_data === null) || ((float)($next_lvl_data['UpgradeCost'] ?? 0) <= 0);
 
-    $is_max = ($next_lvl_data === null);
     $cost_display = "";
     if ($next_lvl_data) {
         $resource_name = htmlspecialchars($next_lvl_data['UpgradeResource']);
@@ -675,7 +783,7 @@ function renderOfficerAbilityRow($talent, $id_character, $current_lvl, $type_lab
                     <div><span class='officer-ability-name'>{$talent['nom']}</span> <span class='officer-ability-type'>{$type_label}</span></div>
                     <div><img src='images/characters/Officier/talent/{$ab_icon}.webp' class='officer-ability-icon'></div>
                 </div>
-                <span class='officer-ability-level'>Niveau {$ab_lvl} " . ($is_max ? "" : $cost_display) . "</span>
+                <span class='officer-ability-level'>Niveau {$ab_lvl_display} " . ($is_max ? "" : $cost_display) . "</span>
             </div>
             <div class='officer-ability-upgrade'>";
                 if (!$is_max) {
@@ -684,7 +792,8 @@ function renderOfficerAbilityRow($talent, $id_character, $current_lvl, $type_lab
                     $btn_txt  = $can_up ? "Améliorer" : "Niv. {$req_h} requis";
                     $disabled = $can_up ? "" : "disabled style='opacity:0.6; cursor:not-allowed;'";
 
-                    $html .= "<button class='btn-upgrade-ability' {$disabled} data-character='{$id_character}' data-ability='{$ab_id}' onclick=\"triggerUpgradeAbility(this, '{$ab_id}', '{$safe_ab_id}')\">{$btn_txt}</button>";
+                    $ab_nom_esc = htmlspecialchars(addslashes($talent['nom'] ?? $ab_tid), ENT_QUOTES);
+                    $html .= "<button class='btn-upgrade-ability' {$disabled} data-character='{$id_character}' data-ability='{$ab_id}' data-tid='{$ab_nom_esc}' data-next-level='{$next_lvl}' onclick=\"triggerUpgradeAbility(this, '{$ab_id}', '{$safe_ab_id}')\">{$btn_txt}</button>";
                 } else {
                     $html .= "<span class='officer-ability-lvl-max' style='color: #e74c3c; font-weight: bold;'>Niveau max</span>";
                 }
@@ -752,14 +861,6 @@ function renderUnitsStatsSidebar($title, $units_list) {
 function renderLeadersStatsSidebar($pdo, $id_player, $officers_list) {
     if (empty($officers_list)) return;
 
-    // Récupération des niveaux de capacités depuis la base de données
-    $stmt_prog = $pdo->prepare("SELECT id_character, id_ability, niveau FROM progress_ability WHERE id_player = ?");
-    $stmt_prog->execute([$id_player]);
-    $abilities_progress = [];
-    while ($row = $stmt_prog->fetch(PDO::FETCH_ASSOC)) {
-        $abilities_progress[(int)$row['id_character']][(int)$row['id_ability']] = (int)$row['niveau'];
-    }
-
     $global_current = 0;
     $global_max = 0; 
     $rows_html = "";
@@ -772,25 +873,34 @@ function renderLeadersStatsSidebar($pdo, $id_player, $officers_list) {
         // On initialise à NULL pour détecter l'absence de progression
         $passive_lvl = null;
         $active_lvl = null;
+        $passive_max_lvl = 0;
+        $active_max_lvl = 0;
         
-        if (!empty($u['abilities'])) {
-            if (isset($u['abilities']['passive'])) {
-                $aid = $u['abilities']['passive']['id_ability'];
-                $passive_lvl = $abilities_progress[$char_id][$aid] ?? null; // NULL si non trouvé
+        if (!empty($u['abilities']['passive'])) {
+            // display_level = niveau réel + bonus talent 3 (déjà calculé et plafonné dans queries.php)
+            $passive_lvl = $u['abilities']['passive']['display_level'] ?? ($u['abilities']['passive']['current_level'] ?? null);
+            if (!empty($u['abilities']['passive']['levels'])) {
+                $lvls = array_column($u['abilities']['passive']['levels'], 'Niveau');
+                $passive_max_lvl = $lvls ? (int)max($lvls) : 0;
             }
-            if (isset($u['abilities']['active'])) {
-                $aid = $u['abilities']['active']['id_ability'];
-                $active_lvl = $abilities_progress[$char_id][$aid] ?? null; // NULL si non trouvé
+        }
+        if (!empty($u['abilities']['active'])) {
+            $active_lvl = $u['abilities']['active']['display_level'] ?? ($u['abilities']['active']['current_level'] ?? null);
+            if (!empty($u['abilities']['active']['levels'])) {
+                $lvls = array_column($u['abilities']['active']['levels'], 'Niveau');
+                $active_max_lvl = $lvls ? (int)max($lvls) : 0;
             }
         }
 
-        // Calcul du progrès : si NULL, on considère que c'est 0 (car pas encore débloqué/initialisé)
+        // Calcul du progrès : si NULL ou niveau 0 (pas encore débloqué), on considère que c'est 0
         $prog_talents = $talents_count; 
-        $prog_passive = ($passive_lvl !== null) ? ($passive_lvl - 1) : 0;
-        $prog_active  = ($active_lvl !== null) ? ($active_lvl - 1) : 0;
+        $prog_passive = ($passive_lvl !== null && $passive_lvl > 0) ? ($passive_lvl - 1) : 0;
+        $prog_active  = ($active_lvl !== null && $active_lvl > 0) ? ($active_lvl - 1) : 0;
 
         $current_sum = $prog_talents + $prog_passive + $prog_active;
-        $max_sum = 5 + 14 + 14; 
+        // Max dynamique : un chef sans capacité active (ou passive) ne doit pas être pénalisé
+        // par un dénominateur qui suppose les deux capacités présentes et plafonnées à 15.
+        $max_sum = 5 + max(0, $passive_max_lvl - 1) + max(0, $active_max_lvl - 1);
         
         $global_current += $current_sum;
         $global_max += $max_sum;
@@ -849,9 +959,12 @@ function renderHeroesStatsSidebar($heros_list) {
         $abilities_max = 0;
         foreach ($u['hero_abilities'] ?? [] as $ab) {
             $abilities_current += (int)($ab['current_level'] ?? 1);
-            // Chaque ligne de 'levels' décrit un palier d'amélioration supplémentaire
-            // (même convention que characters/officer_abilities) : niveau max = nb de paliers + 1.
-            $abilities_max += count($ab['levels'] ?? []) + 1;
+            // Le vrai plafond d'une capacité n'est PAS forcément MAX(Niveau)+1 : certaines
+            // capacités ont, après leur dernier palier payant, une ou plusieurs lignes
+            // "terminateurs" à UpgradeCost = 0 (parfois avec un Niveau élevé) qui ne sont pas de
+            // vrais paliers. getAbilityRealMaxLevel() simule la progression et s'arrête au bon
+            // endroit, pour correspondre exactement à ce que "Niveau max" affiche réellement.
+            $abilities_max += getAbilityRealMaxLevel($ab['levels'] ?? []);
         }
 
         $current_sum = $lvl_current + $abilities_current;

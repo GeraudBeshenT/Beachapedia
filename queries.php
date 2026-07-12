@@ -214,6 +214,7 @@ function getFilteredUnits($pdo, $qg, $arsenal_max, $typeFilterSQL, $player_progr
         INNER JOIN texts t ON c.TID = t.TID
         INNER JOIN characterid ci ON c.TID = ci.TID
         LEFT JOIN officer_talents ot ON ci.TID = ot.TID
+        LEFT JOIN characterid base_troop ON base_troop.TID = ci.Officer
         LEFT JOIN (
             SELECT id_character, MAX(niveau) AS niveau, MAX(Debloque) AS Debloque
             FROM progress_character
@@ -223,7 +224,7 @@ function getFilteredUnits($pdo, $qg, $arsenal_max, $typeFilterSQL, $player_progr
         WHERE $typeFilterSQL 
         AND c.Niveau = 1
         AND ci.HQUnlock <= :qg
-        ORDER BY ci.HQUnlock ASC, c.TID ASC"; 
+        ORDER BY COALESCE(base_troop.HQUnlock, ci.HQUnlock) ASC, COALESCE(base_troop.TID, c.TID) ASC"; 
 
     $stmt = $pdo->prepare($sql);
     // On passe un tableau avec les deux paramètres nommés
@@ -236,11 +237,14 @@ function getFilteredUnits($pdo, $qg, $arsenal_max, $typeFilterSQL, $player_progr
     // Récupération de la progression des capacités
     $id_player = $_SESSION['player_id'] ?? null;
     $abilities_progress = [];
+    $abilities_debloque = [];
     if ($id_player) {
-        $stmt_prog = $pdo->prepare("SELECT id_character, id_ability, niveau FROM progress_ability WHERE id_player = ?");
+        $stmt_prog = $pdo->prepare("SELECT id_character, id_ability, niveau, Debloque FROM progress_ability WHERE id_player = ?");
         $stmt_prog->execute([$id_player]);
         while ($row = $stmt_prog->fetch(PDO::FETCH_ASSOC)) {
-            $abilities_progress["{$row['id_character']}-{$row['id_ability']}"] = (int)$row['niveau'];
+            $key = "{$row['id_character']}-{$row['id_ability']}";
+            $abilities_progress[$key] = (int)$row['niveau'];
+            $abilities_debloque[$key] = (int)$row['Debloque'];
         }
     }
 
@@ -259,6 +263,7 @@ function getFilteredUnits($pdo, $qg, $arsenal_max, $typeFilterSQL, $player_progr
 
         if ($is_officer) {
             // --- BLOC A : Compter les talents débloqués et préparer le prochain ---
+            $talent3_unlocked = false; // débloquer le talent 3 donne +2 niveaux (affichage) aux capacités active/passive
             for ($i = 1; $i <= 5; $i++) {
                 $tid_talent = $u["TalentTID$i"] ?? null;
                 if (!empty($tid_talent)) {
@@ -268,8 +273,9 @@ function getFilteredUnits($pdo, $qg, $arsenal_max, $typeFilterSQL, $player_progr
 
                     if ($ab_id) {
                         $composite_key = "{$u['id_character']}-{$ab_id}";
-                        if (isset($abilities_progress[$composite_key])) {
+                        if (!empty($abilities_debloque[$composite_key])) {
                             $total_talents_unlocked++;
+                            if ($i === 3) $talent3_unlocked = true;
                         } elseif ($next_talent_id === 0) {
                             // On stocke l'ID du premier talent non débloqué trouvé (le prochain à améliorer)
                             $next_talent_id = (int)$ab_id;
@@ -296,14 +302,30 @@ function getFilteredUnits($pdo, $qg, $arsenal_max, $typeFilterSQL, $player_progr
                     
                     $stmt_ab_lvls = $pdo->prepare("SELECT Niveau, HeroLevel, UpgradeCost, UpgradeResource FROM officer_abilities WHERE TID = ? ORDER BY Niveau ASC");
                     $stmt_ab_lvls->execute([$ab_tid]);
-                    
+                    $ab_levels = $stmt_ab_lvls->fetchAll(PDO::FETCH_ASSOC);
+
+                    // Niveau réel (celui qui sert de base au calcul du coût du prochain niveau) :
+                    $real_level = $abilities_progress["{$u['id_character']}-{$info['id']}"] ?? 1;
+
+                    // Plafond du bonus d'affichage talent 3 : le vrai max DE TABLE (terminateurs
+                    // à coût 0 inclus, ex. 13/14/15), PAS le max "réellement achetable"
+                    // (getAbilityRealMaxLevel). C'est volontaire côté jeu : ces paliers à coût 0
+                    // au-delà du max achetable existent justement pour être atteints via le bonus
+                    // du talent 3, voir getAbilityTableMaxLevel() dans functions.php.
+                    $ability_table_max_level = $ab_levels ? getAbilityTableMaxLevel($ab_levels) : $real_level;
+
+                    // 🔥 Bonus talent 3 : +2 niveaux affichés (n'affecte PAS le coût, qui reste
+                    // calculé sur le niveau réel juste au-dessus), plafonné au vrai max de table.
+                    $display_level = $talent3_unlocked ? min($ability_table_max_level, $real_level + 2) : $real_level;
+
                     $officer_abilities[$type] = [
                         'id_ability' => $info['id'] ?? 0, 
                         'TID' => $ab_tid,
                         'IconExportName' => $info['IconExportName'] ?? 'default',
                         'nom' => $info['FR'] ?? $ab_tid,
-                        'current_level' => $abilities_progress["{$u['id_character']}-{$info['id']}"] ?? 1,
-                        'levels' => $stmt_ab_lvls->fetchAll(PDO::FETCH_ASSOC)
+                        'current_level' => $real_level,
+                        'display_level' => $display_level,
+                        'levels' => $ab_levels
                     ];
                 }
             }

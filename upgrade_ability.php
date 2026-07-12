@@ -4,6 +4,7 @@ header('Content-Type: application/json');
 require_once 'config.php';
 
 $input = json_decode(file_get_contents('php://input'), true);
+$action = $input['action'] ?? 'upgrade_level';
 $id_character = (int)($input['id_character'] ?? 0);
 $id_ability = (int)($input['id_ability'] ?? 0);
 $id_player = $_SESSION['player_id'] ?? null;
@@ -14,15 +15,100 @@ if (!$id_player || !$id_character || !$id_ability) {
 }
 
 try {
-    // 1. Récupération de la capacité + vérification de l'appartenance
+    if ($action === 'unlock_talent') {
+        // --- DÉBLOCAGE D'UN TALENT D'OFFICIER ---
+        // Contrairement aux capacités Active/Passive, les talents n'ont AUCUNE ligne dans
+        // officer_abilities (pas de palier, pas de coût) : c'est un déblocage binaire
+        // (Debloque 0 -> 1), dans l'ordre strict Talent 1 -> 2 -> 3 -> 4 -> 5. La vérification
+        // d'appartenance doit donc se faire via TalentTID1..5 (et non ActiveAbility/
+        // PassiveAbility, réservées aux capacités classiques — c'était le bug : toute demande
+        // de déblocage de talent tombait dans cette mauvaise branche et échouait toujours).
+
+        $stmt_char = $pdo->prepare("
+            SELECT ci.TID AS char_tid, ot.TalentTID1, ot.TalentTID2, ot.TalentTID3, ot.TalentTID4, ot.TalentTID5
+            FROM characterid ci
+            LEFT JOIN officer_talents ot ON ot.TID = ci.TID
+            WHERE ci.id = ?
+        ");
+        $stmt_char->execute([$id_character]);
+        $char_row = $stmt_char->fetch(PDO::FETCH_ASSOC);
+        if (!$char_row) {
+            echo json_encode(['success' => false, 'message' => 'Personnage introuvable']);
+            exit;
+        }
+
+        $stmt_ab = $pdo->prepare("SELECT ai.TID, t.FR AS nom FROM abilitieid ai LEFT JOIN texts t ON t.TID = ai.TID WHERE ai.id = ?");
+        $stmt_ab->execute([$id_ability]);
+        $ab_row = $stmt_ab->fetch(PDO::FETCH_ASSOC);
+        if (!$ab_row) {
+            echo json_encode(['success' => false, 'message' => 'Capacité introuvable']);
+            exit;
+        }
+        $nom_du_talent = $ab_row['nom'] ?? 'Talent';
+
+        // Slot (1 à 5) correspondant à cette capacité pour CE personnage précis
+        $slot = 0;
+        for ($i = 1; $i <= 5; $i++) {
+            if (!empty($char_row["TalentTID$i"]) && $char_row["TalentTID$i"] === $ab_row['TID']) {
+                $slot = $i;
+                break;
+            }
+        }
+        if ($slot === 0) {
+            echo json_encode(['success' => false, 'message' => "Cette capacité n'appartient pas à ce personnage"]);
+            exit;
+        }
+
+        // Ordre progressif : le talent précédent doit déjà être débloqué
+        if ($slot > 1) {
+            $stmt_prev_id = $pdo->prepare("SELECT id FROM abilitieid WHERE TID = ? LIMIT 1");
+            $stmt_prev_id->execute([$char_row["TalentTID" . ($slot - 1)]]);
+            $prev_ability_id = (int)$stmt_prev_id->fetchColumn();
+
+            $stmt_prev_unlocked = $pdo->prepare("SELECT Debloque FROM progress_ability WHERE id_player = ? AND id_character = ? AND id_ability = ?");
+            $stmt_prev_unlocked->execute([$id_player, $id_character, $prev_ability_id]);
+            $prev_debloque = (int)($stmt_prev_unlocked->fetchColumn() ?: 0);
+
+            if (!$prev_debloque) {
+                echo json_encode(['success' => false, 'message' => "Vous devez d'abord débloquer le talent précédent"]);
+                exit;
+            }
+        }
+
+        // Déjà débloqué ?
+        $stmt_current = $pdo->prepare("SELECT Debloque FROM progress_ability WHERE id_player = ? AND id_character = ? AND id_ability = ?");
+        $stmt_current->execute([$id_player, $id_character, $id_ability]);
+        if ((int)($stmt_current->fetchColumn() ?: 0) === 1) {
+            echo json_encode(['success' => false, 'message' => 'Talent déjà débloqué']);
+            exit;
+        }
+
+        // Déblocage : niveau = 1 en placeholder (les talents ne sont pas "nivelés")
+        $pdo->prepare("
+            INSERT INTO progress_ability (id_player, id_character, id_ability, niveau, Debloque)
+            VALUES (?, ?, ?, 1, 1)
+            ON DUPLICATE KEY UPDATE Debloque = 1, niveau = 1
+        ")->execute([$id_player, $id_character, $id_ability]);
+
+        echo json_encode([
+            'success' => true,
+            'talent_nom' => $nom_du_talent,
+            'message' => 'Talent débloqué'
+        ]);
+        exit;
+    }
+
+    // 1. Récupération de la capacité + vérification qu'elle appartient bien à ce personnage
+    //    - Capacité de Héros  : abilitieid.hero = id_character
+    //    - Capacité d'Officier: liée via officer_talents.ActiveAbility/PassiveAbility -> characterid.TID
     $stmt_info = $pdo->prepare("
-        SELECT ai.TID AS ability_tid, ai.hero, ai.Type, t.FR AS talent_nom, c.TID AS character_tid, c.id AS character_id
+        SELECT ai.TID AS ability_tid, ai.hero, t.FR AS talent_nom, c.TID AS troupe_nom
         FROM abilitieid ai
         JOIN texts t ON ai.TID = t.TID
-        LEFT JOIN characterid c ON c.TID = ai.hero
+        JOIN characterid c ON c.id = ?
         WHERE ai.id = ?
     ");
-    $stmt_info->execute([$id_ability]);
+    $stmt_info->execute([$id_character, $id_ability]);
     $info = $stmt_info->fetch(PDO::FETCH_ASSOC);
 
     if (!$info) {
@@ -30,20 +116,11 @@ try {
         exit;
     }
 
-    $ability_tid = $info['ability_tid'];
-    $is_hero_ability = !empty($info['hero']);
-    $is_officer_ability = (strpos($info['Type'], 'OfficerAbility') === 0);
-    $nom_du_talent = $info['talent_nom'] ?? "Talent";
-    $nom_de_la_troupe = $info['character_tid'] ?? "l'unité";
+    $is_hero_ability = ((int)$info['hero'] === $id_character);
 
-    // Vérification de l'appartenance
-    if ($is_hero_ability) {
-        if ((int)$info['character_id'] !== $id_character) {
-            echo json_encode(['success' => false, 'message' => "Cette capacité n'appartient pas à ce personnage"]);
-            exit;
-        }
-    } else {
-        // Pour les officiers : vérifier via officer_talents
+    if (!$is_hero_ability) {
+        // Capacité d'officier : on vérifie qu'elle fait bien partie de ActiveAbility/PassiveAbility
+        // du personnage ciblé
         $stmt_owns = $pdo->prepare("
             SELECT 1
             FROM characterid ci
@@ -52,25 +129,42 @@ try {
               AND ? IN (ot.ActiveAbility, ot.PassiveAbility)
             LIMIT 1
         ");
-        $stmt_owns->execute([$id_character, $ability_tid]);
+        $stmt_owns->execute([$id_character, $info['ability_tid']]);
         if (!$stmt_owns->fetch()) {
             echo json_encode(['success' => false, 'message' => "Cette capacité n'appartient pas à ce personnage"]);
             exit;
         }
     }
 
-    // 2. Niveau actuel de la capacité
+    $nom_du_talent  = $info['talent_nom'] ?? "Talent";
+    $nom_de_la_troupe = $info['troupe_nom'] ?? "l'unité";
+    $ability_tid    = $info['ability_tid'];
+
+    // 2. Niveau actuel du personnage (conditionne le déblocage via HeroLevel)
+    $stmt_char_lvl = $pdo->prepare("SELECT niveau FROM progress_character WHERE id_player = ? AND id_character = ? LIMIT 1");
+    $stmt_char_lvl->execute([$id_player, $id_character]);
+    $character_niveau = (int)($stmt_char_lvl->fetchColumn() ?: 1);
+
+    // 3. Niveau actuel de la capacité
     $stmt = $pdo->prepare("SELECT niveau FROM progress_ability WHERE id_player = ? AND id_character = ? AND id_ability = ?");
     $stmt->execute([$id_player, $id_character, $id_ability]);
     $prog = $stmt->fetch(PDO::FETCH_ASSOC);
     $current_ability_niveau = $prog ? (int)$prog['niveau'] : 1;
 
-    // 3. Niveau MAX autorisé pour cette capacité
-    $stmt_max_level = $pdo->prepare("SELECT MAX(Niveau) FROM officer_abilities WHERE TID = ?");
-    $stmt_max_level->execute([$ability_tid]);
-    $max_level = (int)($stmt_max_level->fetchColumn() ?: ($is_hero_ability ? 7 : 16));
+    // 4. Palier suivant dans officer_abilities (même table pour héros et officiers)
+    $stmt_next = $pdo->prepare("
+        SELECT Niveau, HeroLevel, UpgradeCost, UpgradeResource, UpgradeTimeH
+        FROM officer_abilities
+        WHERE TID = ? AND Niveau = ?
+        LIMIT 1
+    ");
+    $stmt_next->execute([$ability_tid, $current_ability_niveau]);
+    $next = $stmt_next->fetch(PDO::FETCH_ASSOC);
 
-    if ($current_ability_niveau >= $max_level) {
+    if (!$next || (float)($next['UpgradeCost'] ?? 0) <= 0) {
+        // Pas de palier suivant défini, OU palier "terminateur" à coût 0 (convention DB : une
+        // ligne UpgradeCost = 0 signale qu'il n'y a plus rien à acheter à partir de ce niveau,
+        // même si la ligne existe) = capacité déjà au niveau max.
         echo json_encode([
             'success' => false,
             'message' => 'Capacité déjà au niveau maximum',
@@ -79,56 +173,6 @@ try {
         exit;
     }
 
-    // 4. 🔥 CORRECTION : Niveau de la troupe/du héros (selon le type)
-    if ($is_hero_ability) {
-        // Pour les héros : niveau du héros
-        $stmt_char_lvl = $pdo->prepare("SELECT niveau FROM progress_character WHERE id_player = ? AND id_character = ? LIMIT 1");
-        $stmt_char_lvl->execute([$id_player, $id_character]);
-        $character_niveau = (int)($stmt_char_lvl->fetchColumn() ?: 1);
-    } else {
-        // Pour les officiers : niveau de la TROUPE DE BASE (via colonne Officer)
-        $stmt_base_troop = $pdo->prepare("SELECT Officer FROM characterid WHERE id = ? LIMIT 1");
-        $stmt_base_troop->execute([$id_character]);
-        $base_troop = $stmt_base_troop->fetch(PDO::FETCH_ASSOC);
-
-        if ($base_troop && $base_troop['Officer']) {
-            $stmt_base_troop_id = $pdo->prepare("SELECT id FROM characterid WHERE TID = ? LIMIT 1");
-            $stmt_base_troop_id->execute([$base_troop['Officer']]);
-            $base_troop_id = $stmt_base_troop_id->fetch(PDO::FETCH_ASSOC);
-
-            if ($base_troop_id) {
-                $stmt_char_lvl = $pdo->prepare("SELECT niveau FROM progress_character WHERE id_player = ? AND id_character = ? LIMIT 1");
-                $stmt_char_lvl->execute([$id_player, $base_troop_id['id']]);
-                $character_niveau = (int)($stmt_char_lvl->fetchColumn() ?: 1);
-            } else {
-                $character_niveau = 1; // Fallback
-            }
-        } else {
-            $character_niveau = 1; // Fallback
-        }
-    }
-
-    // 5. Récupérer les infos du niveau SUIVANT
-    $next_level = $current_ability_niveau + 1;
-    $stmt_next = $pdo->prepare("
-        SELECT Niveau, HeroLevel, UpgradeCost, UpgradeResource, UpgradeTimeH
-        FROM officer_abilities
-        WHERE TID = ? AND Niveau = ?
-        LIMIT 1
-    ");
-    $stmt_next->execute([$ability_tid, $next_level]);
-    $next = $stmt_next->fetch(PDO::FETCH_ASSOC);
-
-    if (!$next) {
-        echo json_encode([
-            'success' => false,
-            'message' => 'Niveau suivant introuvable',
-            'is_max' => true
-        ]);
-        exit;
-    }
-
-    // 6. Vérifier le niveau requis (héros OU troupe de base)
     $required_hero_level = (int)$next['HeroLevel'];
     if ($character_niveau < $required_hero_level) {
         echo json_encode([
@@ -138,7 +182,10 @@ try {
         exit;
     }
 
-    // 7. Mise à jour de la progression
+    // (Optionnel : c'est ici qu'il faudrait vérifier/débiter UpgradeCost en UpgradeResource
+    // sur les ressources du joueur, si une table de ressources existe côté joueurs.)
+
+    // 5. Mise à jour de la progression
     $new_level = $current_ability_niveau + 1;
     if (!$prog) {
         $pdo->prepare("INSERT INTO progress_ability (id_player, id_character, id_ability, niveau) VALUES (?,?,?,?)")
@@ -148,23 +195,25 @@ try {
             ->execute([$new_level, $id_player, $id_character, $id_ability]);
     }
 
-    // 8. Vérifier si c'est le niveau max après cette amélioration
-    $is_max = ($new_level >= $max_level);
+    // Y a-t-il encore un VRAI palier après celui-ci (coût > 0, pas juste une ligne terminateur) ?
+    $stmt_check_max = $pdo->prepare("SELECT UpgradeCost FROM officer_abilities WHERE TID = ? AND Niveau = ? LIMIT 1");
+    $stmt_check_max->execute([$ability_tid, $new_level]);
+    $next_row = $stmt_check_max->fetch(PDO::FETCH_ASSOC);
+    $is_max = (!$next_row) || ((float)($next_row['UpgradeCost'] ?? 0) <= 0);
 
-    // 9. Retour du succès
     echo json_encode([
         'success' => true,
         'new_level' => $new_level,
         'is_max' => $is_max,
         'talent_nom' => $nom_du_talent,
         'troupe_nom' => $nom_de_la_troupe,
-        'message' => 'Amélioration réussie'
+        'message' => 'Mise à jour réussie'
     ]);
 
 } catch (Exception $e) {
     error_log("ERREUR SQL UPGRADE_ABILITY : " . $e->getMessage());
     echo json_encode([
         'success' => false,
-        'message' => 'Erreur technique: ' . $e->getMessage()
+        'message' => 'Erreur technique'
     ]);
 }

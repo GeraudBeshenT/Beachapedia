@@ -238,6 +238,7 @@ $bb_languages = [
                         <span class="profile-name"><?php echo htmlspecialchars($_SESSION['player_nom']); ?></span>
 
                         <div class="profile-dropdown" id="profileDropdown">
+                            <a href="#" onclick="showTab('MassUpgrade'); return false;">🚀 Mass Upgrade</a>
                             <a href="deconnexion.php">🚪 Déconnexion</a>
                         </div>
                     </div>
@@ -454,7 +455,7 @@ $bb_languages = [
         <h2>Chef de bataillon</h2>
             <div class="dashboard-wrapper" style="display: flex; gap: 20px; align-items: flex-start;">
                 <div style="flex: 3;">
-                    <?php renderUnitsTable($officers_list); ?>
+                    <?php renderUnitsTable($officers_list, $progress, $house_levels, $pdo, $_SESSION['player_id']); ?>
                 </div>
                 
                 <div style="flex: 1;">
@@ -493,6 +494,9 @@ $bb_languages = [
 
         <div id="Engraving-Offensive" class="tab-content"><?php renderEngravingsTable($engravings_offensive); ?></div>
         <div id="Engraving-Defensive" class="tab-content"><?php renderEngravingsTable($engravings_defensive); ?></div>
+
+        <?php include 'mass_upgrade.php'; ?>
+
         
 
     </div> <?php include 'footer.php'; ?>

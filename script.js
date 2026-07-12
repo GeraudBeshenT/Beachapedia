@@ -662,11 +662,50 @@ window.triggerUpgradeCharacter = function(tid, safeId, maxLvl) {
     });
 };
 
+// Débloquage d'un talent d'officier
+window.unlockTalent = function(button) {
+    const idCharacter = button.getAttribute('data-character');
+    const idAbility = button.getAttribute('data-ability');
+    const talentTid = button.getAttribute('data-tid') || 'ce talent';
+
+    if (!confirm("Débloquer le talent " + talentTid + " ?")) return;
+
+    button.disabled = true;
+    button.innerHTML = "⏳";
+
+    fetch('upgrade_ability.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            action: 'unlock_talent',
+            id_character: idCharacter,
+            id_ability: idAbility
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            location.reload();
+        } else {
+            alert("Erreur : " + data.message);
+            button.disabled = false;
+            button.innerHTML = "Débloquer";
+        }
+    })
+    .catch(error => {
+        console.error("Erreur:", error);
+        alert("Une erreur est survenue.");
+        button.disabled = false;
+        button.innerHTML = "Débloquer";
+    });
+};
+
 // Fonction pour améliorer une capacité d'officier via AJAX
 window.triggerUpgradeAbility = function(button, ab_id, safe_ab_id) {
     const idCharacter = button.getAttribute("data-character");
     const idAbility = button.getAttribute("data-ability");
-    const talentName = button.getAttribute("data-name") || "ce talent";
+    const abilityTid = button.getAttribute("data-tid") || "cette capacité";
+    const nextLevel = button.getAttribute("data-next-level") || "?";
 
     if (!idCharacter || !idAbility) {
         console.error("IDs manquants sur le bouton !");
@@ -674,7 +713,7 @@ window.triggerUpgradeAbility = function(button, ab_id, safe_ab_id) {
     }
 
     // 1. Pop-up de validation
-    if (!confirm("Vous êtes sur le point d'améliorer : " + talentName + ". Êtes-vous sûr ?")) {
+    if (!confirm("Améliorer la capacité " + abilityTid + " au niveau " + nextLevel + " ?")) {
         return; // L'utilisateur a annulé
     }
 
@@ -750,7 +789,10 @@ window.triggerUpgradeTalent = function(button) {
     });
 };
 
-window.unlockOfficer = function(idCharacter) {
+window.unlockOfficer = function(idCharacter, tid) {
+    const officerTid = tid || "ce chef de bataillon";
+    if (!confirm("Êtes-vous sûr d'avoir débloqué le " + officerTid + " ?")) return;
+
     let formData = new FormData();
     formData.append('action', 'unlock_officer');
     // Assure-toi que cette clé correspond au $_POST['id_character'] de ton PHP
@@ -763,16 +805,14 @@ window.unlockOfficer = function(idCharacter) {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            // Optionnel : Retire instantanément le filtre sans recharger
-            let card = document.querySelector(`[data-id-character="${idCharacter}"]`);
-            if (card) {
-                card.classList.remove('unit-locked');
-                let overlay = card.querySelector('.unlock-overlay');
-                if (overlay) overlay.remove();
-            }
+            location.reload();
         } else {
             alert(data.message);
         }
+    })
+    .catch(error => {
+        console.error("Erreur:", error);
+        alert("Une erreur technique est survenue.");
     });
 };
 
