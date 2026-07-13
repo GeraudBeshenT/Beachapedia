@@ -311,26 +311,36 @@ $bb_languages = [
             ];
 
             // --- Gravures : global (offensif + défensif), puis chaque catégorie séparément ---
+            // Calcul basé sur les NIVEAUX et non sur le nombre de gravures débloquées
             $engravings_all_flat  = array_merge($engravings_offensive, $engravings_defensive);
-            $gravures_total       = count($engravings_all_flat);
-            $gravures_obtenues    = count(array_filter($engravings_all_flat, fn($e) => (int)($e['niveau_actuel'] ?? 0) > 0));
+
+            // Somme de tous les niveaux actuels et max
+            $total_current_level = array_sum(array_column($engravings_all_flat, 'niveau_actuel'));
+            $total_max_level = array_sum(array_column($engravings_all_flat, 'niveau_max'));
+
             $stats_gravures = [
-                'current' => $gravures_obtenues,
-                'max'     => $gravures_total,
-                'percent' => ($gravures_total > 0) ? round(($gravures_obtenues / $gravures_total) * 100, 1) : 0,
+                'current' => $total_current_level,
+                'max'     => $total_max_level,
+                'percent' => ($total_max_level > 0) ? round(($total_current_level / $total_max_level) * 100, 1) : 0,
             ];
 
+            // Stats pour les gravures offensives
+            $off_current = array_sum(array_column($engravings_offensive, 'niveau_actuel'));
+            $off_max = array_sum(array_column($engravings_offensive, 'niveau_max'));
             $stats_gravures_off = [
-                'current' => count(array_filter($engravings_offensive, fn($e) => (int)($e['niveau_actuel'] ?? 0) > 0)),
-                'max'     => count($engravings_offensive),
+                'current' => $off_current,
+                'max'     => $off_max,
+                'percent' => ($off_max > 0) ? round(($off_current / $off_max) * 100, 1) : 0,
             ];
-            $stats_gravures_off['percent'] = ($stats_gravures_off['max'] > 0) ? round(($stats_gravures_off['current'] / $stats_gravures_off['max']) * 100, 1) : 0;
 
+            // Stats pour les gravures défensives
+            $def_current = array_sum(array_column($engravings_defensive, 'niveau_actuel'));
+            $def_max = array_sum(array_column($engravings_defensive, 'niveau_max'));
             $stats_gravures_def = [
-                'current' => count(array_filter($engravings_defensive, fn($e) => (int)($e['niveau_actuel'] ?? 0) > 0)),
-                'max'     => count($engravings_defensive),
+                'current' => $def_current,
+                'max'     => $def_max,
+                'percent' => ($def_max > 0) ? round(($def_current / $def_max) * 100, 1) : 0,
             ];
-            $stats_gravures_def['percent'] = ($stats_gravures_def['max'] > 0) ? round(($stats_gravures_def['current'] / $stats_gravures_def['max']) * 100, 1) : 0;
         ?>
 
         <div id="Dashboard" class="tab-content">
@@ -492,8 +502,29 @@ $bb_languages = [
             <h2>Récompenses du Boom Pass</h2>
         </div>
 
-        <div id="Engraving-Offensive" class="tab-content"><?php renderEngravingsTable($engravings_offensive); ?></div>
-        <div id="Engraving-Defensive" class="tab-content"><?php renderEngravingsTable($engravings_defensive); ?></div>
+        <div id="Engraving-Offensive" class="tab-content">
+            <h2>Gravures Offensives</h2>
+            <div class="dashboard-wrapper" style="display: flex; gap: 20px; align-items: flex-start;">
+                <div style="flex: 3;">
+                    <?php renderEngravingsTable($engravings_offensive); ?>
+                </div>
+                <div style="flex: 1;">
+                    <?php renderEngravingsStatsSidebar('Gravures Offensives', $engravings_offensive, $stats_gravures_off); ?>
+                </div>
+            </div>
+        </div>
+
+        <div id="Engraving-Defensive" class="tab-content">
+            <h2>Gravures Défensives</h2>
+            <div class="dashboard-wrapper" style="display: flex; gap: 20px; align-items: flex-start;">
+                <div style="flex: 3;">
+                    <?php renderEngravingsTable($engravings_defensive); ?>
+                </div>
+                <div style="flex: 1;">
+                    <?php renderEngravingsStatsSidebar('Gravures Défensives', $engravings_defensive, $stats_gravures_def); ?>
+                </div>
+            </div>
+        </div>
 
         <?php include 'mass_upgrade.php'; ?>
 

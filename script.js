@@ -937,7 +937,17 @@ window.triggerUpgradeTribu = function(idTrib, safeId, maxLvl) {
     });
 };
 
-window.triggerUpgradeEngraving = function(idEngraving, safeId, maxLvl) {
+window.triggerUpgradeEngraving = function(idEngraving, safeId, maxLvl, nom, currentLvl) {
+    const nextLvl = currentLvl + 1;
+    if (nextLvl > maxLvl) {
+        alert("Niveau maximum atteint !");
+        return;
+    }
+
+    if (!confirm(`Améliorer ${nom} niveau ${nextLvl} ?`)) {
+        return;
+    }
+
     const displayElement = document.getElementById('lvl-' + safeId);
     if (!displayElement) return;
 

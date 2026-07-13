@@ -73,9 +73,13 @@ try {
         if (!empty($abilities)) {
     // 🔥 CORRECTION : D'abord mettre à jour les capacités existantes
     $placeholders = implode(',', array_fill(0, count($abilities), '?'));
+    // GREATEST(niveau, 1) plutôt qu'un "niveau = 1" en dur : si le joueur a déjà renseigné
+    // un niveau plus haut pour cette capacité (ex. via Mass Upgrade, AVANT de débloquer
+    // officiellement l'officier), on ne veut surtout pas l'écraser. On veut juste garantir
+    // qu'une capacité fraîchement débloquée soit au moins au niveau 1.
     $stmt_update = $pdo->prepare("
         UPDATE progress_ability
-        SET Debloque = 1, niveau = 1
+        SET Debloque = 1, niveau = GREATEST(niveau, 1)
         WHERE id_player = ? AND id_character = ? AND id_ability IN ($placeholders)
     ");
     $stmt_update->execute(array_merge([$id_player, $id_character], $abilities));

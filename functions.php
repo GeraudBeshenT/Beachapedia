@@ -1280,8 +1280,7 @@ function renderEngravingsTable($engravings, $cat_color = "#1abc9c") {
             <div class='troop-card-costs'>
                 <span class='troop-cost-item'>
                     <img class='troop-cost-icon' src='images/engravings/Epic_research_token.webp' alt='Jetons de recherche' onerror=\"this.src='images/default.png'\">
-                    <span class='cost-value' id='cost-{$safe_id}' data-costs='" . htmlspecialchars(json_encode($costs)) . "'>{$cost_display}</span>
-                    <span style='font-weight:400; color:#bdc3c7;'>Jetons de recherche</span>
+<span class='cost-value' id='cost-{$safe_id}' data-costs='" . htmlspecialchars(json_encode($costs)) . "'>" . ($next_cost !== null ? $next_cost : "Max") . "</span>                    <span style='font-weight:400; color:#bdc3c7;'>Jetons de recherche</span>
                 </span>
             </div>";
         }
@@ -1290,55 +1289,63 @@ function renderEngravingsTable($engravings, $cat_color = "#1abc9c") {
         echo "
             <div class='troop-card-action'>
                 <button class='btn-upgrade' {$disabled}
-                        onclick=\"triggerUpgradeEngraving({$id_engraving}, '{$safe_id}', {$max})\">
+                        onclick=\"triggerUpgradeEngraving({$id_engraving}, '{$safe_id}', {$max}, '{$nom}', {$niv})\">
                     <span class='btn-text'>{$btn_text}</span>
                 </button>
             </div>";
 
-        if (!empty($costs)) {
-            echo "
-            <button type='button' class='engraving-costs-toggle' onclick=\"toggleCostTable('{$safe_id}')\" id='chevron-{$safe_id}'>
-                Détail des coûts <span class='chevron-icon'>🔽</span>
-            </button>
-            <div id='table-cost-{$safe_id}' class='engraving-costs-table'>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Niveau</th>
-                            <th>Jetons</th>
-                            <th style='text-align:right;'>Statut</th>
-                        </tr>
-                    </thead>
-                    <tbody>";
-
-            foreach ($costs as $q_lvl => $tokens) {
-                if ($q_lvl <= $niv) {
-                    $status = "✅ Acquis";
-                    $row_class = "cost-row-done";
-                } elseif ($q_lvl == $niv + 1) {
-                    $status = "⏳ Suivant";
-                    $row_class = "cost-row-next";
-                } else {
-                    $status = "🔒 Bloqué";
-                    $row_class = "";
-                }
-
-                echo "
-                        <tr class='{$row_class}'>
-                            <td>Niv. {$q_lvl}</td>
-                            <td>{$tokens}</td>
-                            <td class='status-cell' style='text-align:right;'>{$status}</td>
-                        </tr>";
-            }
-
-            echo "
-                    </tbody>
-                </table>
-            </div>";
-        }
-
         echo "
         </div>";
+    }
+
+    echo "</div>";
+}
+
+/**
+ * Sidebar de progression pour les Gravures (Offensive/Defensive)
+ * Affiche le % basé sur les niveaux, la liste des gravures, et le coût total restant en Jetons de recherche
+ */
+function renderEngravingsStatsSidebar($title, $engravings_list, $stats) {
+    if (empty($engravings_list)) return;
+
+    $total_cost = 0;
+    $rows_html = "";
+
+    foreach ($engravings_list as $e) {
+        $nom = htmlspecialchars($e['nom'] ?? '???');
+        $cur = (int)($e['niveau_actuel'] ?? 0);
+        $max = (int)($e['niveau_max'] ?? 1);
+
+        // Calcul du coût restant pour cette gravure
+        $remaining_cost = 0;
+        if (!empty($e['costs']) && $cur < $max) {
+            for ($lvl = $cur + 1; $lvl <= $max; $lvl++) {
+                $remaining_cost += $e['costs'][$lvl] ?? 0;
+            }
+        }
+        $total_cost += $remaining_cost;
+
+        $color = ($cur >= $max) ? '#2ecc71' : '#f1c40f';
+        $rows_html .= "<li style='padding: 5px 0; border-bottom: 1px solid #3e4a56;'>
+                {$nom}
+                <span style='float:right; color:{$color};'>{$cur}/{$max}</span>
+              </li>";
+    }
+
+    $percent = $stats['percent'] ?? 0;
+
+    echo "<div class='stats-sidebar' style='background: #2c3e50; padding: 15px; border-radius: 8px; color: #fff; border: 1px solid #456789;'>";
+    echo "<h4 style='margin: 0 0 10px 0; border-bottom: 2px solid #e74c3c; padding-bottom: 5px;'>{$title}</h4>";
+    echo "<div style='font-size: 1.8em; font-weight: bold; color: #e74c3c; text-align: center; margin-bottom: 10px;'>{$percent}%</div>";
+    echo "<ul style='list-style: none; padding: 0; margin: 0; font-size: 0.85em;'>{$rows_html}</ul>";
+
+    if ($total_cost > 0) {
+        echo "<div class='sidebar-total-remaining'>
+                <div class='sidebar-total-title'>Jetons de recherche restants</div>
+                <div class='sidebar-total-costs'>
+                    <span class='sidebar-total-item'><img src='images/icons/Proto_Token.png' alt='Jetons' style='width:20px;'>" . number_format($total_cost, 0, ',', ' ') . "</span>
+                </div>
+              </div>";
     }
 
     echo "</div>";
