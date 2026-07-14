@@ -1,10 +1,20 @@
 <?php
 // queries.php
 
-// On s'assure que la session est démarrée
+// 1. Démarrage de la session
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
+
+// Récupère la langue depuis la SESSION (prioritaire), sinon cookie, sinon FR
+$selected_lang = $_SESSION['lang'] ?? $_COOKIE['lang'] ?? 'FR';
+$allowed_langs = ['FR', 'EN', 'DE', 'ES', 'IT', 'PT', 'NL', 'PL', 'RU', 'TR', 'AR', 'ZH', 'JA', 'KO'];
+$selected_lang = in_array($selected_lang, $allowed_langs) ? $selected_lang : 'FR';
+
+// 3. Le reste de ton code existant...
+$id_player = $_SESSION['player_id'] ?? null;
+require_once 'config.php';
+require_once 'functions.php';
 
 // On récupère l'ID, si la session n'existe pas, on arrête tout
 $id_player = $_SESSION['player_id'] ?? null;
@@ -42,13 +52,14 @@ $qg_image_name = ($qg_info) ? $qg_info['ExportName'] : 'townhall_lvl1';
  * Une instance sans ligne en base = bâtiment non construit (niveau 0, Debloque 0).
  */
 function getBuildingsDisplay($pdo, $id_player, $qg, $arsenal_level_reel = 0) {
+    global $selected_lang;
 
     // progress_building est maintenant la source de vérité complète : une ligne y est
     // créée pour chaque emplacement de bâtiment débloqué (Debloque = 0 tant qu'il n'est
     // pas encore construit, Debloque = 1 une fois construit). Plus besoin de la vue
     // v_all_unlocks pour savoir ce qui est disponible à ce QG : on lit directement ici.
     $stmt_prog = $pdo->prepare("
-        SELECT pb.id_instance, pb.niveau, pb.Debloque, bi.TID, bi.Class, bi.Ordre, t.FR AS nom
+        SELECT pb.id_instance, pb.niveau, pb.Debloque, bi.TID, bi.Class, bi.Ordre, t.$selected_lang AS nom
         FROM progress_building pb
         JOIN buildingid bi ON bi.ID = pb.id_building
         JOIN texts t ON bi.TID = t.TID
@@ -61,6 +72,10 @@ function getBuildingsDisplay($pdo, $id_player, $qg, $arsenal_level_reel = 0) {
     // Niveau max atteignable par TID (dépend toujours du QG via buildings.TownHallLevel,
     // indépendamment de la vue) — mis en cache pour ne pas refaire la requête à chaque instance.
     $niveau_max_cache = [];
+    // Niveau max ABSOLU par TID, celui-là INDÉPENDANT du QG (tous niveaux confondus, jusqu'à
+    // la fin du jeu) — utilisé uniquement pour le %age "jusqu'au max du max" du Tableau de Bord,
+    // qui reste identique quel que soit le QG actuel, contrairement à niveau_max ci-dessus.
+    $niveau_max_absolu_cache = [];
 
     $buildings_display = ['Ressource' => [], 'Defense' => [], 'Army' => [], 'Trap' => []];
 
@@ -83,6 +98,13 @@ function getBuildingsDisplay($pdo, $id_player, $qg, $arsenal_level_reel = 0) {
             $niveau_max_cache[$cache_key] = (int)($stmt_max->fetchColumn() ?: 1);
         }
         $niveau_max = $niveau_max_cache[$cache_key];
+
+        if (!isset($niveau_max_absolu_cache[$tid])) {
+            $stmt_max_abs = $pdo->prepare("SELECT MAX(Niveau) FROM buildings WHERE TID = ?");
+            $stmt_max_abs->execute([$tid]);
+            $niveau_max_absolu_cache[$tid] = (int)($stmt_max_abs->fetchColumn() ?: $niveau_max);
+        }
+        $niveau_max_absolu = $niveau_max_absolu_cache[$tid];
 
         $niveau_actuel = (int)$b['niveau'];
         $debloque      = (int)$b['Debloque'];
@@ -134,6 +156,7 @@ function getBuildingsDisplay($pdo, $id_player, $qg, $arsenal_level_reel = 0) {
             'ExportName'    => $export_name,
             'niveau_actuel' => $niveau_actuel,
             'niveau_max'    => $niveau_max,
+            'niveau_max_absolu' => $niveau_max_absolu,
             'Debloque'      => $debloque,
             // Pièges : uniquement l'Or compte. Autres catégories : bois/pierre/fer.
             'BuildCostGold'  => $is_trap ? ($next['BuildCostGold']  ?? null) : null,
@@ -199,6 +222,7 @@ unset($data);
 // 1. Fonction dédiée aux Troupes // Proto // Héros // Chefs de bataillon
 // ========================================================
 function getFilteredUnits($pdo, $qg, $arsenal_max, $typeFilterSQL, $player_progress = [], $house_levels = []) {
+    global $selected_lang;
     // 1. Requête principale
     // NOTE : la jointure sur progress_character passe par une sous-requête agrégée
     // (MAX(niveau)/MAX(Debloque) GROUP BY id_character) au lieu d'un simple LEFT JOIN direct.
@@ -207,7 +231,7 @@ function getFilteredUnits($pdo, $qg, $arsenal_max, $typeFilterSQL, $player_progr
     // update_qg.php y insère plusieurs fois via INSERT IGNORE — un LEFT JOIN direct dupliquerait
     // le personnage autant de fois qu'il y a de lignes (symptôme observé : "Dr Kavan" affiché
     // plusieurs fois). Cette sous-requête garantit toujours UNE seule ligne par personnage.
-    $sql = "SELECT ci.id AS id_character, c.*, t.FR AS nom, ci.Class, ci.IconExportName, ci.Officer,
+    $sql = "SELECT ci.id AS id_character, c.*, t.$selected_lang AS nom, ci.Class, ci.IconExportName, ci.Officer,
                ot.TalentTID1, ot.TalentTID2, ot.TalentTID3, ot.TalentTID4, ot.TalentTID5,
                pc.niveau, pc.Debloque
         FROM characters c
@@ -295,7 +319,7 @@ function getFilteredUnits($pdo, $qg, $arsenal_max, $typeFilterSQL, $player_progr
                 foreach (['active' => $ab_row['ActiveAbility'], 'passive' => $ab_row['PassiveAbility']] as $type => $ab_tid) {
                     if (!$ab_tid) continue;
                     
-                    $stmt_info = $pdo->prepare("SELECT ai.id, ai.IconExportName, t.FR FROM abilitieid ai 
+                    $stmt_info = $pdo->prepare("SELECT ai.id, ai.IconExportName, t.$selected_lang FROM abilitieid ai 
                                                 LEFT JOIN texts t ON ai.TID = t.TID WHERE ai.TID = ?");
                     $stmt_info->execute([$ab_tid]);
                     $info = $stmt_info->fetch(PDO::FETCH_ASSOC);
@@ -338,7 +362,7 @@ function getFilteredUnits($pdo, $qg, $arsenal_max, $typeFilterSQL, $player_progr
             // Mêmes coûts/temps que les officiers : table officer_abilities (TID, Niveau,
             // HeroLevel, UpgradeTimeH, UpgradeCost, UpgradeResource).
             $stmt_hero_ab = $pdo->prepare("
-                SELECT ai.id, ai.TID, ai.IconExportName, t.FR AS nom
+                SELECT ai.id, ai.TID, ai.IconExportName, t.$selected_lang AS nom
                 FROM abilitieid ai
                 LEFT JOIN texts t ON ai.TID = t.TID
                 WHERE ai.hero = ?
@@ -477,13 +501,14 @@ $dashboard_categories = [
  * Récupère les bâtiments avec leur progression
  */
 function getBuildings($pdo, $id_player) {
+    global $selected_lang;
     // 1. Récupérer la progression du joueur pour les bâtiments
     $stmt_prog = $pdo->prepare("SELECT id_building, id_instance, niveau FROM progress_buildings WHERE id_player = ?");
     $stmt_prog->execute([$id_player]);
     $progress = $stmt_prog->fetchAll(PDO::FETCH_KEY_PAIR); // Retourne [id_batiment => niveau]
 
     // 2. Requête unifiée : Bâtiments + Noms + Catégories
-    $sql = "SELECT b.id, b.TID, b.Category, t.FR AS nom, b.IconExportName
+    $sql = "SELECT b.id, b.TID, b.Category, t.$selected_lang AS nom, b.IconExportName
             FROM buildings b
             LEFT JOIN texts t ON b.TID = t.TID
             ORDER BY b.Category ASC, b.id ASC";
@@ -511,7 +536,7 @@ $stmt_monument->execute([$id_player]);
 $monument_level = (int)($stmt_monument->fetchColumn() ?: 0);
 
 // 2. Récupérer tous les bonus disponibles
-$stmt_bonuses = $pdo->prepare("SELECT id_bonus, t.FR AS TID, MaxCount, BoostAmount, MinBuildingLevel FROM cc_bonuses INNER JOIN texts t ON t.TID = cc_bonuses.TID ORDER BY MinBuildingLevel ASC, TID ASC");
+$stmt_bonuses = $pdo->prepare("SELECT id_bonus, t.$selected_lang AS TID, MaxCount, BoostAmount, MinBuildingLevel FROM cc_bonuses INNER JOIN texts t ON t.TID = cc_bonuses.TID ORDER BY MinBuildingLevel ASC, TID ASC");
 $stmt_bonuses->execute();
 $cc_bonuses = $stmt_bonuses->fetchAll(PDO::FETCH_ASSOC);
 
@@ -639,11 +664,11 @@ try {
 try {
     // Requête principale qui récupère les gravures et leur ID unique (id) de la table engravingid
     $stmt_eng = $pdo->query("
-        SELECT ei.id AS id_engraving, e.TID, ei.Category, ei.Type, ei.IconExportName, IFNULL(t.FR, e.TID) AS nom, MAX(e.Quality) as niveau_max
+        SELECT ei.id AS id_engraving, e.TID, ei.Category, ei.Type, ei.IconExportName, IFNULL(t.$selected_lang, e.TID) AS nom, MAX(e.Quality) as niveau_max
         FROM engravings e
         JOIN engravingid ei ON e.TID = ei.TID
         LEFT JOIN texts t ON e.TID = t.TID
-        GROUP BY ei.id, e.TID, ei.Category, ei.Type, ei.IconExportName, t.FR
+        GROUP BY ei.id, e.TID, ei.Category, ei.Type, ei.IconExportName, t.$selected_lang
         ORDER BY ei.Type ASC, e.TID ASC
     ");
     
@@ -754,7 +779,7 @@ foreach ($tribus_costs as $tid => $levels) {
 try {
     // Requête principale : les 6 tribus + leur condition de déblocage (RadarLvlReq)
     $stmt_tribsid = $pdo->query("
-        SELECT ti.id AS id_trib, ti.TID, ti.RadarLvlReq, ti.IconExportName, IFNULL(t.FR, ti.TID) AS nom
+        SELECT ti.id AS id_trib, ti.TID, ti.RadarLvlReq, ti.IconExportName, IFNULL(t.$selected_lang, ti.TID) AS nom
         FROM tribsid ti
         LEFT JOIN texts t ON ti.TID = t.TID
         ORDER BY ti.RadarLvlReq ASC, ti.TID ASC

@@ -199,18 +199,29 @@ function calculateCategoryProgress($buildings) {
 function getCategoryStats($buildings) {
     $total_current = 0;
     $total_max = 0;
+    $total_max_absolu = 0;
+    $restant_a_construire = 0;
 
     foreach ($buildings as $b) {
         $total_current += $b['niveau_actuel'];
-        $total_max += $b['niveau_max']; 
+        $total_max += $b['niveau_max'];
+        // niveau_max_absolu n'existe que pour les bâtiments (getBuildingsDisplay) ; on retombe
+        // sur niveau_max pour les autres appelants de cette fonction (ex. gravures) qui n'ont
+        // pas cette notion de "max du max" indépendant du QG.
+        $total_max_absolu += $b['niveau_max_absolu'] ?? $b['niveau_max'];
+        if ((int)$b['niveau_actuel'] === 0) $restant_a_construire++;
     }
 
     $percent = ($total_max > 0) ? round(($total_current / $total_max) * 100, 1) : 0;
+    $percent_absolu = ($total_max_absolu > 0) ? round(($total_current / $total_max_absolu) * 100, 1) : 0;
 
     return [
         'current' => $total_current,
         'max'     => $total_max,
-        'percent' => $percent
+        'percent' => $percent,
+        'max_absolu'     => $total_max_absolu,
+        'percent_absolu' => $percent_absolu,
+        'restant_a_construire' => $restant_a_construire,
     ];
 }
 
@@ -1363,49 +1374,51 @@ function renderEngravingsStatsSidebar($title, $engravings_list, $stats) {
  */
 function renderMainDashboard(
     $stats_buildings, $stats_res, $stats_def, $stats_army, $stats_trap,
-    $stats_troupes_proto, $stats_heros, $stats_officiers_capa, $chefs_debloques, $chefs_total,
+    $stats_troupes, $stats_proto, $stats_heros, $stats_officiers_capa, $chefs_debloques, $chefs_total,
     $stats_capacanon,
     $stats_gravures, $stats_gravures_off, $stats_gravures_def,
-    $stats_tribus, $stats_monument
+    $stats_tribus, $stats_monument,
+    $qg = null
 ) {
-    // % global "Armée" : agrégation de Troupes+Proto, Héros, Capacités des Chefs et Capacités de canonnière
-    $armee_current = $stats_troupes_proto['current'] + $stats_heros['current'] + $stats_officiers_capa['current'] + $stats_capacanon['current'];
-    $armee_max     = $stats_troupes_proto['max'] + $stats_heros['max'] + $stats_officiers_capa['max'] + $stats_capacanon['max'];
+    // % global "Armée" : agrégation de Troupes, Proto-troupes, Héros, Capacités des Chefs et Capacités de canonnière
+    $armee_current = $stats_troupes['current'] + $stats_proto['current'] + $stats_heros['current'] + $stats_officiers_capa['current'] + $stats_capacanon['current'];
+    $armee_max     = $stats_troupes['max'] + $stats_proto['max'] + $stats_heros['max'] + $stats_officiers_capa['max'] + $stats_capacanon['max'];
     $armee_percent = ($armee_max > 0) ? round(($armee_current / $armee_max) * 100, 1) : 0;
 
     echo "<div class='dashboard-container'><h2>Tableau de Bord</h2>";
 
     // ================= SECTION BÂTIMENTS =================
+    // "Construire X bâtiments pour le QG Y" : X = restant_a_construire (niveau_actuel = 0
+    // parmi les bâtiments DÉJÀ débloqués à ce QG), Y = QG actuel du joueur.
     echo "<div class='dash-section'>";
     renderDashSectionHeader('🏗️', 'Bâtiments', $stats_buildings['percent'], 'Building-Overview');
     echo "<div class='dash-subcards-row'>";
-    echo renderDashSubcard('🏦', 'Économie', $stats_res['current'], $stats_res['max'], $stats_res['percent'], round($stats_res['percent']) . '% construit', 'Building-Ressource');
-    echo renderDashSubcard('🛡️', 'Défense', $stats_def['current'], $stats_def['max'], $stats_def['percent'], round($stats_def['percent']) . '% construit', 'Building-Defense');
-    echo renderDashSubcard('🏰', 'Renfort', $stats_army['current'], $stats_army['max'], $stats_army['percent'], round($stats_army['percent']) . '% construit', 'Building-Army');
-    echo renderDashSubcard('💣', 'Pièges', $stats_trap['current'], $stats_trap['max'], $stats_trap['percent'], round($stats_trap['percent']) . '% construit', 'Building-Trap');
+    echo renderDashSubcard('🏦', 'Économie', $stats_res['current'], $stats_res['max'], $stats_res['percent'], "Construire {$stats_res['restant_a_construire']} bâtiments pour le QG {$qg}", 'Building-Ressource', false, false, $stats_res['percent_absolu']);
+    echo renderDashSubcard('🛡️', 'Défense', $stats_def['current'], $stats_def['max'], $stats_def['percent'], "Construire {$stats_def['restant_a_construire']} bâtiments pour le QG {$qg}", 'Building-Defense', false, false, $stats_def['percent_absolu']);
+    echo renderDashSubcard('🏰', 'Renfort', $stats_army['current'], $stats_army['max'], $stats_army['percent'], "Construire {$stats_army['restant_a_construire']} bâtiments pour le QG {$qg}", 'Building-Army', false, false, $stats_army['percent_absolu']);
+    echo renderDashSubcard('💣', 'Pièges', $stats_trap['current'], $stats_trap['max'], $stats_trap['percent'], "Construire {$stats_trap['restant_a_construire']} bâtiments pour le QG {$qg}", 'Building-Trap', false, false, $stats_trap['percent_absolu']);
     echo "</div></div>";
 
     // ================= SECTION ARMÉE =================
+    // Toutes les cartes sur UNE seule rangée (Troupes / Proto-troupes / Héros / Capacité de
+    // canonnière / Chefs de bataillon désormais alignés ensemble, carte carrée comme les autres
+    // — elle n'est plus en pleine largeur).
     echo "<div class='dash-section'>";
     renderDashSectionHeader('⚔️', 'Armée', $armee_percent, 'Army-Overview');
 
     echo "<div class='dash-subcards-row'>";
-    echo renderDashSubcard('🪖', 'Troupes & Proto-troupes', $stats_troupes_proto['current'], $stats_troupes_proto['max'], $stats_troupes_proto['percent'], round($stats_troupes_proto['percent']) . '% de progression', 'Character-Troop');
+    echo renderDashSubcard('🪖', 'Troupes', $stats_troupes['current'], $stats_troupes['max'], $stats_troupes['percent'], round($stats_troupes['percent']) . '% de progression', 'Character-Troop');
+    echo renderDashSubcard('🧪', 'Proto-troupes', $stats_proto['current'], $stats_proto['max'], $stats_proto['percent'], round($stats_proto['percent']) . '% de progression', 'Character-Proto');
     echo renderDashSubcard('🦸', 'Héros', $stats_heros['current'], $stats_heros['max'], $stats_heros['percent'], round($stats_heros['percent']) . '% de progression', 'Character-Hero');
     echo renderDashSubcard('🚤', 'Capacité de canonnière', $stats_capacanon['current'], $stats_capacanon['max'], $stats_capacanon['percent'], round($stats_capacanon['percent']) . '% de progression', 'Character-Spell');
-    echo "</div>";
-
-    echo "<div class='dash-subcards-row'>";
     echo renderDashSubcard(
         '🎖️',
         'Chefs de bataillon',
         $stats_officiers_capa['current'],
         $stats_officiers_capa['max'],
         $stats_officiers_capa['percent'],
-        "{$chefs_debloques} / {$chefs_total} chefs débloqués — niveaux de capacités (talents non comptés)",
-        'Character-Leader',
-        false,
-        true
+        "{$chefs_debloques} / {$chefs_total} chefs débloqués",
+        'Character-Leader'
     );
     echo "</div>";
     echo "</div>";
@@ -1459,26 +1472,47 @@ function renderDashSectionHeader($icon, $title, $percent = null, $target_tab = n
  * (ex: Économie/Défense/Renfort sous "Bâtiments"). Même logique que
  * renderOverviewCard, mais gabarit plus petit pensé pour être groupé par section.
  */
-function renderDashSubcard($icon, $title, $current, $max, $percent, $subtitle, $target_tab = null, $disabled = false, $full_width = false) {
+/**
+ * Carte compacte utilisée dans les sous-sections du Tableau de Bord
+ * (ex: Économie/Défense/Renfort sous "Bâtiments"). Reprend le style visuel des
+ * cartes "Succès" du jeu : icône qui déborde en haut de la carte, titre en
+ * dessous, une div d'info, puis une barre de progression AVEC le chiffre à
+ * l'intérieur, et à la place de la "Prime" du jeu, le %age vers le "max du max"
+ * (= le plafond de fin de jeu, indépendant du QG actuel — voir $percent_absolu).
+ *
+ * $percent_absolu : si null, retombe sur $percent (cas des sections qui n'ont pas
+ * de notion de plafond "au-delà du QG actuel", ex. gravures, dont le niveau_max
+ * est déjà le vrai plafond du jeu).
+ */
+function renderDashSubcard($icon, $title, $current, $max, $percent, $subtitle, $target_tab = null, $disabled = false, $full_width = false, $percent_absolu = null) {
     $classes = 'dash-subcard';
     if ($full_width) $classes .= ' full-width';
     if ($disabled) $classes .= ' disabled';
     if ($target_tab && !$disabled) $classes .= ' clickable';
 
-    $onclick_attr  = ($target_tab && !$disabled) ? " onclick=\"showTab('{$target_tab}')\"" : "";
-    $soon_badge    = $disabled ? "<span class='dash-subcard-badge'>Bientôt</span>" : "";
-    $value_display = $disabled ? "—" : "{$current}<span class='value-max'> / {$max}</span>";
-    $percent_safe  = max(0, min(100, (float)$percent));
+    $onclick_attr   = ($target_tab && !$disabled) ? " onclick=\"showTab('{$target_tab}')\"" : "";
+    $percent_safe   = max(0, min(100, (float)$percent));
+    $percent_abs_safe = ($percent_absolu !== null) ? max(0, min(100, (float)$percent_absolu)) : $percent_safe;
+
+    $value_display  = $disabled ? "—" : "{$current}/{$max}";
+    $percent_col_html = $disabled
+        ? "<span class='dash-subcard-badge'>Bientôt</span>"
+        : "<span class='dash-subcard-percent-label'>Complétion</span><span class='dash-subcard-percent-value'>{$percent_abs_safe}%</span>";
 
     return "
         <div class='{$classes}'{$onclick_attr}>
-            <div class='dash-subcard-top'>
-                <div class='dash-subcard-title'><span>{$icon}</span><span>" . htmlspecialchars($title) . "</span></div>
-                {$soon_badge}
+            <div class='dash-subcard-icon-badge'>{$icon}</div>
+            <div class='dash-subcard-title'>" . htmlspecialchars($title) . "</div>
+            <div class='dash-subcard-info'>" . htmlspecialchars($subtitle) . "</div>
+            <div class='dash-subcard-bottom-row'>
+                <div class='dash-subcard-progress-col'>
+                    <div class='dash-subcard-track'>
+                        <div class='dash-subcard-fill' style='width: {$percent_safe}%;'></div>
+                        <span class='dash-subcard-track-label'>{$value_display}</span>
+                    </div>
+                </div>
+                <div class='dash-subcard-percent-col'>{$percent_col_html}</div>
             </div>
-            <div class='dash-subcard-value'>{$value_display}</div>
-            <div class='dash-subcard-track'><div class='dash-subcard-fill' style='width: {$percent_safe}%;'></div></div>
-            <div class='dash-subcard-sub'>" . htmlspecialchars($subtitle) . "</div>
         </div>";
 }
 

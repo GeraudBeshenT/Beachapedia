@@ -2,13 +2,19 @@
 // 1. Démarrage de la session en tout premier
 session_start();
 
+// 👇 NOUVEAU : Gestion de la langue AVANT d'inclure queries.php
+if (isset($_GET['lang'])) {
+    $_SESSION['lang'] = $_GET['lang'];
+    setcookie('lang', $_GET['lang'], time() + (86400 * 30), "/"); // 30 jours
+}
+
 // 2. Vérification de la sécurité
 if (!isset($_SESSION['player_id'])) {
     header("Location: index.php");
     exit();
 }
 
-// 3. Ensuite, on inclut les requêtes qui dépendent de la session
+// 3. Ensuite, on inclut les requêtes
 require_once 'queries.php';
 require_once 'functions.php';
 
@@ -274,8 +280,9 @@ $bb_languages = [
             }
             $chefs_total = count($officers_list);
 
-            // --- Armée : Troupes + Proto-troupes combinées, Héros, et capacités des Chefs (hors talents) ---
-            $stats_troupes_proto  = getUnitsStats(array_merge($troupes_list ?? [], $proto_list ?? []));
+            // --- Armée : Troupes, Proto-troupes (désormais séparées), Héros, et capacités des Chefs (hors talents) ---
+            $stats_troupes        = getUnitsStats($troupes_list ?? []);
+            $stats_proto          = getUnitsStats($proto_list ?? []);
             $stats_heros          = getUnitsStats($heros_list ?? []);
             $stats_officiers_capa = getOfficersCapaciteStats($pdo, $id_player, $officers_list ?? []);
             $stats_capacanon      = getUnitsStats($capacanon_list ?? []);
@@ -343,13 +350,15 @@ $bb_languages = [
             ];
         ?>
 
+
         <div id="Dashboard" class="tab-content">
             <?php renderMainDashboard(
                 $stats_buildings_global, $stats_res, $stats_def, $stats_army, $stats_trap,
-                $stats_troupes_proto, $stats_heros, $stats_officiers_capa, $chefs_debloques, $chefs_total,
+                $stats_troupes, $stats_proto, $stats_heros, $stats_officiers_capa, $chefs_debloques, $chefs_total,
                 $stats_capacanon,
                 $stats_gravures, $stats_gravures_off, $stats_gravures_def,
-                $stats_tribus, $stats_monument
+                $stats_tribus, $stats_monument,
+                $qg
             ); ?>
         </div>
 
@@ -382,7 +391,7 @@ $bb_languages = [
         <div id="Building-Ressource" class="tab-content">
 
             <h2>Bâtiments Économiques</h2>
-            <div class="dashboard-wrapper" style="display: flex; gap: 20px; align-items: flex-start;">
+            <div class="dashboard-wrapper">
                 <div style="flex: 3;">
                     <?php renderBuildingsTable(['Ressource' => $buildings_display['Ressource'] ?? []]); ?>
                 </div>
@@ -395,7 +404,7 @@ $bb_languages = [
         <div id="Building-Defense" class="tab-content">
             
         <h2>Bâtiments Défensifs</h2>
-        <div class="dashboard-wrapper" style="display: flex; gap: 20px; align-items: flex-start;">
+        <div class="dashboard-wrapper">
             <div style="flex: 3;">
                 <?php renderBuildingsTable(['Bâtiments défensifs' => $buildings_display['Defense'] ?? []]); ?>
             </div>
@@ -406,7 +415,7 @@ $bb_languages = [
         </div>
         <div id="Building-Army" class="tab-content">
         <h2>Bâtiments de support</h2>
-            <div class="dashboard-wrapper" style="display: flex; gap: 20px; align-items: flex-start;">
+            <div class="dashboard-wrapper">
                 <div style="flex: 3;">
                     <?php renderBuildingsTable(['Army' => $buildings_display['Army'] ?? []]); ?>
                 </div>
@@ -418,7 +427,7 @@ $bb_languages = [
 
         <div id="Building-Trap" class="tab-content">
         <h2>Pièges</h2>
-            <div class="dashboard-wrapper" style="display: flex; gap: 20px; align-items: flex-start;">
+            <div class="dashboard-wrapper">
                 <div style="flex: 3;">
                     <?php renderBuildingsTable(['Trap' => $buildings_display['Trap'] ?? []]); ?>
                 </div>
@@ -430,7 +439,7 @@ $bb_languages = [
 
         <div id="Character-Troop" class="tab-content">
         <h2>Troupes</h2>
-            <div class="dashboard-wrapper" style="display: flex; gap: 20px; align-items: flex-start;">
+            <div class="dashboard-wrapper">
                 <div style="flex: 3;">
                     <?php renderUnitsTable($troupes_list, $character_progress, $house_levels); ?>
                 </div>
@@ -441,7 +450,7 @@ $bb_languages = [
         </div>
         <div id="Character-Hero" class="tab-content">
             <h2>Héros</h2>
-            <div class="dashboard-wrapper" style="display: flex; gap: 20px; align-items: flex-start;">
+            <div class="dashboard-wrapper">
                 <div style="flex: 3;">
                     <?php renderUnitsTable($heros_list); ?>
                 </div>
@@ -452,7 +461,7 @@ $bb_languages = [
         </div>
         <div id="Character-Proto" class="tab-content">
         <h2>Proto-troupes</h2>
-            <div class="dashboard-wrapper" style="display: flex; gap: 20px; align-items: flex-start;">
+            <div class="dashboard-wrapper">
                 <div style="flex: 3;">
                     <?php renderUnitsTable($proto_list, $character_progress, $house_levels); ?>
                 </div>
@@ -463,7 +472,7 @@ $bb_languages = [
         </div>
         <div id="Character-Leader" class="tab-content">
         <h2>Chef de bataillon</h2>
-            <div class="dashboard-wrapper" style="display: flex; gap: 20px; align-items: flex-start;">
+            <div class="dashboard-wrapper">
                 <div style="flex: 3;">
                     <?php renderUnitsTable($officers_list, $progress, $house_levels, $pdo, $_SESSION['player_id']); ?>
                 </div>
@@ -475,7 +484,7 @@ $bb_languages = [
         </div>
         <div id="Character-Spell" class="tab-content">
         <h2>Capacité de canonnière</h2>
-            <div class="dashboard-wrapper" style="display: flex; gap: 20px; align-items: flex-start;">
+            <div class="dashboard-wrapper">
                 <div style="flex: 3;">
                     <?php renderUnitsTable($capacanon_list, $character_progress, $house_levels); ?>
                 </div>
@@ -504,7 +513,7 @@ $bb_languages = [
 
         <div id="Engraving-Offensive" class="tab-content">
             <h2>Gravures Offensives</h2>
-            <div class="dashboard-wrapper" style="display: flex; gap: 20px; align-items: flex-start;">
+            <div class="dashboard-wrapper">
                 <div style="flex: 3;">
                     <?php renderEngravingsTable($engravings_offensive); ?>
                 </div>
@@ -516,7 +525,7 @@ $bb_languages = [
 
         <div id="Engraving-Defensive" class="tab-content">
             <h2>Gravures Défensives</h2>
-            <div class="dashboard-wrapper" style="display: flex; gap: 20px; align-items: flex-start;">
+            <div class="dashboard-wrapper">
                 <div style="flex: 3;">
                     <?php renderEngravingsTable($engravings_defensive); ?>
                 </div>

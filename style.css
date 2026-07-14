@@ -400,7 +400,7 @@ h2{
     line-height: 1.25;
     background-color: #3C7891;
     text-align: center;
-    margin: 0 0 20px 0;
+    margin: -1 -1 20px -1;
 }
 
 h3{
@@ -412,6 +412,25 @@ h3{
 .tab-content {
     display: none;
     animation: fadeIn 0.4s;
+    border: 10px solid #3C7891;
+    border-radius: 10px;
+    /* padding: 18px; */
+    box-sizing: border-box;
+}
+
+.dashboard-wrapper {
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
+    margin: 10px;
+}
+
+.category-nav-grid{
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
+    margin: 10px;
+
 }
 
 .tab-content.active {
@@ -1036,7 +1055,7 @@ button.btn-upgrade-talent {
 /* Grille : 2 unités par ligne */
 .troops-grid {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(3, 1fr);
     gap: 20px;
     padding: 20px;
 }
@@ -1230,7 +1249,7 @@ button.btn-upgrade-talent {
    ========================================================================== */
 
 .dashboard-container {
-    max-width: 1300px;
+    width: 100%;
     margin: 0 auto;
 }
 
@@ -1974,7 +1993,7 @@ button.btn-upgrade-talent {
 
 @media (max-width: 900px) {
     .main-layout { grid-template-columns: var(--sidebar-w-collapsed) 1fr; }
-    .sidebar-logo-text, .sidebar-section-label, .menu-label, .menu-caret, .submenu,
+    .sidebar-logo-text, .sidebar-section-label, .menu-caret, .submenu,
     .lang-label, .lang-caret, .profile-name { display: none !important; }
     .sidebar-header { flex-direction: column; padding: 14px 8px; gap: 10px; }
     .menu-header, .lang-btn, .profile-btn { justify-content: center; padding: 10px; }
@@ -1990,14 +2009,15 @@ button.btn-upgrade-talent {
     border: 1px solid rgba(255, 255, 255, 0.09);
     border-radius: 14px;
     padding: 18px 20px 20px;
-    margin-bottom: 22px;
 }
 
 .dash-section-header {
     display: flex;
+    padding: 15px;
     align-items: center;
     justify-content: space-between;
     gap: 12px;
+    background-color: #3C7891;
 }
 
 .dash-section-header.clickable { cursor: pointer; }
@@ -2013,6 +2033,7 @@ button.btn-upgrade-talent {
     color: #ecf0f1;
         text-shadow: 1px 1px 1px black, -1px -1px 1px black, 1px -1px 1px black, -1px 1px 1px black, 0px -1px 1px black, 0px 1px 1px black, -1px 0px 1px black, 1px 0px 1px black, 0 2px 1px black, -1px 3px 1px black, 1px 3px 1px black;
 
+    letter-spacing: 2px !important;
 }
 
 .dash-section-icon { font-size: 1.1em; }
@@ -2028,14 +2049,15 @@ button.btn-upgrade-talent {
 .dash-section-track {
     height: 8px;
     background: rgba(255, 255, 255, 0.08);
-    border-radius: 4px;
-    margin: 10px 0 16px;
+    padding: 15px;
+    margin-top: -1px;
     overflow: hidden;
+    background-color: #3C7891;
 }
 
 .dash-section-fill {
     height: 100%;
-    background: linear-gradient(90deg, #1abc9c, #16a085);
+    background: #EE893E;
     border-radius: 4px;
     transition: width 0.3s ease;
 }
@@ -2043,6 +2065,7 @@ button.btn-upgrade-talent {
 .dash-subcards-row {
     display: flex;
     flex-wrap: wrap;
+    justify-content: center;
     gap: 14px;
     margin-bottom: 12px;
     padding-top: 25px;
@@ -2050,37 +2073,79 @@ button.btn-upgrade-talent {
 
 .dash-subcards-row:last-child { margin-bottom: 0; }
 
+/* 🔥 Refonte façon carte "Succès" du jeu : icône qui déborde en haut, titre centré,
+   div d'info, puis une rangée basse [barre de progression | %age vers le max du max]
+   (reprend la disposition Progression / Prime de la carte Succès). */
 .dash-subcard {
-    flex: 1 1 220px;
+    position: relative;
+    overflow: visible;
+    display: flex;
+    flex-direction: column;
+    flex: 0 0 280px;
+    width: 280px;
+    height: 280px;
     background: #1c2c39;
     border: 1px solid #2c3e50;
     border-radius: 10px;
-    padding: 14px 16px;
+    padding: 30px 20px 20px;
+    margin-top: 22px;
     color: #dcdde1;
     box-sizing: border-box;
+    text-align: center;
     transition: transform 0.15s ease, border-color 0.15s ease;
 }
 
 .dash-subcard.clickable { cursor: pointer; }
 .dash-subcard.clickable:hover { transform: translateY(-2px); border-color: #1abc9c; }
 .dash-subcard.disabled { opacity: 0.55; }
-.dash-subcard.full-width { flex-basis: 100%; }
+/* La carte "Chefs de bataillon" reste volontairement large (elle occupe toute la ligne) :
+   on annule le carré fixe uniquement pour celle-là. */
+.dash-subcard.full-width {
+    flex-basis: 100%;
+    width: auto;
+    height: auto;
+}
 
-.dash-subcard-top {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 8px;
-    gap: 8px;
+/* Icône ronde qui chevauche le bord supérieur de la carte, comme les étoiles des Succès */
+.dash-subcard-icon-badge {
+    position: absolute;
+    top: -22px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 44px;
+    height: 44px;
+    line-height: 44px;
+    font-size: 1.4em;
+    background: #EE893E;
+    border: 3px solid #1c2c39;
+    border-radius: 50%;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
 }
 
 .dash-subcard-title {
+    font-weight: 700;
+    font-size: 1em;
+    color: #ecf0f1;
+    margin-bottom: 8px;
+    height: 22px;
+    line-height: 22px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dash-subcard-info {
+    background: rgba(0, 0, 0, 0.25);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 0.8em;
+    color: #bdc3c7;
+    margin-bottom: 10px;
+    height: 48px;
     display: flex;
     align-items: center;
-    gap: 8px;
-    font-weight: 600;
-    font-size: 0.95em;
-    color: #ecf0f1;
+    justify-content: center;
+    overflow: hidden;
 }
 
 .dash-subcard-badge {
@@ -2094,37 +2159,60 @@ button.btn-upgrade-talent {
     flex-shrink: 0;
 }
 
-.dash-subcard-value {
-    font-family: 'Courier New', monospace;
-    font-weight: bold;
-    font-size: 1.3em;
-    color: #fff;
-    margin-bottom: 6px;
+.dash-subcard-bottom-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: auto;
 }
 
-.dash-subcard-value .value-max {
-    font-size: 0.6em;
+.dash-subcard-progress-col { flex: 2 1 auto; min-width: 0; }
+.dash-subcard-percent-col {
+    flex: 1 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    line-height: 1.2;
+}
+
+.dash-subcard-percent-label {
+    font-size: 0.65em;
     color: #8aa0b0;
-    font-weight: normal;
+    text-transform: uppercase;
 }
 
+.dash-subcard-percent-value {
+    font-weight: bold;
+    font-size: 1.1em;
+    color: #f1c40f;
+}
+
+/* Barre de progression AVEC le chiffre affiché à l'intérieur (au lieu d'en dessous) */
 .dash-subcard-track {
-    height: 6px;
+    position: relative;
+    height: 22px;
     background: rgba(255, 255, 255, 0.08);
-    border-radius: 3px;
+    border-radius: 11px;
     overflow: hidden;
-    margin-bottom: 6px;
 }
 
 .dash-subcard-fill {
     height: 100%;
-    background: #1abc9c;
-    border-radius: 3px;
+    background: #EE893E;
+    border-radius: 11px;
 }
 
-.dash-subcard-sub {
-    font-size: 0.78em;
-    color: #8aa0b0;
+.dash-subcard-track-label {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Courier New', monospace;
+    font-size: 0.75em;
+    font-weight: bold;
+    color: #fff;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
 }
 
 /* Masquage des éléments au max */
@@ -2158,4 +2246,197 @@ button.btn-upgrade-talent {
     display: flex;
     align-items: center;
     justify-content: space-between;
+}
+
+/* ==========================================================================
+   RESPONSIVE MOBILE
+   Sur mobile, la sidebar devient une barre de menu collée en tête de page :
+   logo + sélecteur de langue + hamburger (icon_gacha) restent visibles.
+   Le hamburger ouvre un tiroir plein écran contenant la navigation ET le
+   profil (déplacé à l'intérieur du menu, comme demandé). Pour le reste,
+   toutes les grilles de cartes repassent simplement en 1 colonne.
+   ========================================================================== */
+@media (max-width: 768px) {
+
+    :root { --mobile-topbar-h: 62px; --mobile-profile-h: 78px; --mobile-lang-h: 54px; }
+
+    /* --- Layout général : on quitte la grille 2 colonnes, tout s'empile --- */
+    .main-layout {
+        display: block;
+    }
+
+    .main-content {
+        width: 100%;
+        padding: 14px;
+    }
+
+    /* --- La sidebar devient la barre du haut, collée en haut de l'écran (sticky) --- */
+    .sidebar {
+        position: sticky;
+        top: 0;
+        width: 100%;
+        height: auto;
+        min-height: var(--mobile-topbar-h);
+        overflow: visible;
+        border-right: none;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        z-index: 500;
+    }
+
+    .sidebar-inner {
+        display: flex;
+        flex-direction: row;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
+        height: auto;
+    }
+
+    .sidebar-logo-img {
+        width: 100%;
+        object-fit: contain;
+        flex-shrink: 0;
+        filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.45));
+    }
+
+    /* On "aplatit" l'en-tête et le pied de sidebar : leurs enfants (logo,
+       hamburger, langue, profil) deviennent des éléments flex directs de
+       .sidebar-inner, ce qui permet de les réordonner librement sur une
+       seule ligne de menu. */
+    .sidebar-header,
+    .sidebar-footer {
+        display: contents;
+    }
+
+    /* Ligne du haut : uniquement le logo et le hamburger (icon_gacha),
+       alignés aux deux extrémités (space-between). */
+    .sidebar-logo {
+        order: 1;
+        padding: 10px 0 10px 14px;
+    }
+
+    .sidebar-toggle {
+        order: 2;
+        margin-left: auto;
+        margin-right: 14px;
+    }
+
+    /* --- Navigation, langue et profil : cachés par défaut, affichés en
+       tiroir plein écran quand le hamburger (icon_gacha) est activé.
+       Le sélecteur de langue vit désormais À L'INTÉRIEUR du tiroir,
+       juste au-dessus du profil (et non plus dans la barre du haut). --- */
+    .sidebar-scroll,
+    .lang-select,
+    .sidebar-profile {
+        display: none;
+        flex-basis: 100%;
+    }
+
+    .sidebar-scroll { order: 4; }
+    .lang-select { order: 5; }
+    .sidebar-profile { order: 6; }
+
+    body.mobile-menu-open .sidebar-scroll {
+        display: block;
+        position: fixed;
+        top: var(--mobile-topbar-h);
+        left: 0;
+        right: 0;
+        bottom: calc(var(--mobile-profile-h) + var(--mobile-lang-h));
+        margin: 0;
+        overflow-y: auto;
+        background: var(--bg-dark-blue);
+        z-index: 401;
+        box-shadow: 0 16px 32px rgba(0, 0, 0, 0.45);
+    }
+
+    body.mobile-menu-open .lang-select {
+        display: block;
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: var(--mobile-profile-h);
+        height: var(--mobile-lang-h);
+        padding: 8px 14px;
+        background: var(--bg-dark-blue);
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+        box-sizing: border-box;
+        z-index: 401;
+    }
+
+    /* Le sélecteur de langue est maintenant tout en bas du tiroir, juste
+       au-dessus du profil : son menu s'ouvre donc vers le haut. */
+    .lang-dropdown {
+        top: auto;
+        bottom: calc(100% + 8px);
+    }
+
+    body.mobile-menu-open .sidebar-profile {
+        display: flex;
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: var(--mobile-profile-h);
+        padding: 10px 14px;
+        background: linear-gradient(180deg, var(--bg-dark-blue) 0%, var(--bg-light-blue) 100%);
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+        z-index: 401;
+        box-sizing: border-box;
+    }
+
+    /* --- Texte des items du menu bien visible (blanc) sur fond dédié --- */
+    body.mobile-menu-open .menu-header {
+        color: #ffffff;
+        background: radial-gradient(circle, rgba(55, 88, 95, 1) 0%, rgba(40, 57, 64, 1) 100%);
+        border-radius: 0;
+    }
+
+    body.mobile-menu-open .menu-header .menu-label {
+        color: #ffffff;
+    }
+
+    /* Fond assombri derrière le tiroir de navigation, sous la barre du haut */
+    body.mobile-menu-open::after {
+        content: '';
+        position: fixed;
+        top: var(--mobile-topbar-h);
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.55);
+        z-index: 399;
+        pointer-events: none;
+    }
+
+    /* On bloque le scroll du fond pendant que le tiroir est ouvert */
+    body.mobile-menu-open {
+        overflow: hidden;
+    }
+
+    /* ---------------------------------------------------------------------
+       "Pour le reste, une carte par ligne" : toutes les grilles multi-
+       colonnes repassent en 1 colonne / empilement vertical.
+       --------------------------------------------------------------------- */
+    .qg-grid { grid-template-columns: 1fr; }
+    .qg-cost-grid { grid-template-columns: 1fr; }
+
+    .dashboard-widgets { flex-direction: column; }
+    .widget-card { width: 100%; }
+
+    .overview-cards-grid { flex-direction: column; }
+    .overview-card { flex-basis: auto; width: 100%; min-width: 0; }
+
+    .category-nav-grid { flex-direction: column; }
+    .category-nav-card { flex-basis: auto; width: 100%; min-width: 0; box-sizing: border-box;}
+
+    .dash-subcards-row { flex-direction: column; }
+    .dash-subcard {
+        width: 100%;
+        height: auto;
+        flex-basis: auto;
+    }
+
+    .units-grid-left { flex-direction: column !important; align-items: stretch !important; }
+    .main-layout-container { flex-direction: column !important; }
 }

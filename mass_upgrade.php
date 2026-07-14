@@ -56,13 +56,13 @@ $mu_initial_data = muBuildData($pdo, $id_player, $mu_default_qg);
 </div>
 
 <style>
-.mu-wrapper { padding: 20px; color: #ecf0f1; }
+/* .mu-wrapper { padding: 20px; color: #ecf0f1; } */
 .mu-header h2 { margin: 0 0 6px 0; }
-.mu-subtitle { color: #bdc3c7; max-width: 800px; font-size: 0.95em; line-height: 1.4; }
+.mu-subtitle { color: #bdc3c7; max-width: 800px; padding-left: 10px; font-size: 0.95em; line-height: 1.4; }
 
 .mu-toolbar {
-    display: flex; align-items: center; gap: 12px; margin: 18px 0;
-    background: #1a252f; padding: 12px 16px; border-radius: 8px; flex-wrap: wrap;
+    display: flex; align-items: center; gap: 12px; margin: 18px 0; padding-left: 10px;
+        background: radial-gradient(circle, rgba(55, 88, 95, 1) 0%, rgba(40, 57, 64, 1) 100%); padding: 12px 16px; border-radius: 8px; flex-wrap: wrap;
 }
 .mu-toolbar label { font-weight: bold; }
 .mu-toolbar select {
@@ -99,7 +99,7 @@ $mu_initial_data = muBuildData($pdo, $id_player, $mu_default_qg);
 }
 
 .mu-grid {
-    display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    display: grid; grid-template-columns: repeat(3, 1fr);
     gap: 10px;
 }
 .mu-item {
@@ -112,11 +112,35 @@ $mu_initial_data = muBuildData($pdo, $id_player, $mu_default_qg);
     width: 100%; background: #2c3e50; border: 1px solid rgba(255,255,255,0.2);
     border-radius: 4px; color: white; padding: 6px 8px; box-sizing: border-box;
 }
-.mu-instances { display: flex; flex-wrap: wrap; gap: 6px; }
+.mu-instances { display: flex; flex-wrap: wrap; gap: 10px; }
 .mu-instance {
-    display: flex; flex-direction: column; font-size: 0.75em; color: #95a5a6; gap: 2px;
+    display: flex; flex-direction: column; font-size: 0.75em; color: #95a5a6; gap: 4px;
+    flex: 1 1 140px;
 }
-.mu-instance .mu-input { width: 50px; }
+
+/* 🔥 Slider + champ numérique côte à côte, façon Clash Ninja */
+.mu-level-control {
+    display: flex; align-items: center; gap: 8px;
+}
+.mu-level-control .mu-input { width: 55px; flex: 0 0 auto; }
+.mu-slider {
+    flex: 1 1 auto;
+    accent-color: #1abc9c;
+    cursor: pointer;
+}
+
+/* 🔥 Boutons de niveau rapide (1 à niveau_max), appliqués à toute la famille (carte entière) */
+.mu-quick-levels {
+    display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px;
+}
+.mu-quick-btn {
+    background: #2c3e50; color: #bdc3c7; border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 4px; min-width: 26px; padding: 3px 6px; font-size: 0.78em;
+    cursor: pointer; transition: all 0.15s;
+}
+.mu-quick-btn:hover {
+    background: #1abc9c; color: white; border-color: #1abc9c;
+}
 
 .mu-abilities { margin-top: 10px; border-top: 1px dashed rgba(255,255,255,0.1); padding-top: 8px; }
 .mu-ability-row {
@@ -129,7 +153,7 @@ $mu_initial_data = muBuildData($pdo, $id_player, $mu_default_qg);
 
 .mu-footer {
     display: flex; align-items: center; justify-content: flex-end; gap: 16px;
-    position: sticky; bottom: 0; background: #10171f; padding: 14px 0; margin-top: 10px;
+    position: sticky; bottom: 0;     background: radial-gradient(circle, rgba(55, 88, 95, 1) 0%, rgba(40, 57, 64, 1) 100%); padding: 14px; margin-top: 10px;
 }
 .mu-status { font-size: 0.9em; }
 .mu-status.ok { color: #2ecc71; }
@@ -140,6 +164,7 @@ $mu_initial_data = muBuildData($pdo, $id_player, $mu_default_qg);
     display: flex;
     flex-direction: column;
     gap: 15px;
+    padding: 10px;
 }
 
 .mu-tab-buttons {
@@ -228,6 +253,13 @@ $mu_initial_data = muBuildData($pdo, $id_player, $mu_default_qg);
     border-top: 1px dashed rgba(255,255,255,0.1);
     padding-top: 8px;
 }
+
+/* Responsive mobile : 1 carte par ligne, comme sur le reste du site */
+@media (max-width: 768px) {
+    .mu-grid { grid-template-columns: 1fr; }
+    .mu-toolbar { flex-direction: column; align-items: stretch; }
+    .mu-footer { flex-direction: column; align-items: stretch; }
+}
 </style>
 
 <script>
@@ -268,6 +300,47 @@ function muFillGroup(button) {
         let v = parseInt(value, 10);
         if (max !== null && v > parseInt(max, 10)) v = parseInt(max, 10);
         input.value = v;
+        // Si ce champ a un slider jumeau (.mu-level-control), on le resynchronise aussi
+        const wrapper = input.closest('.mu-level-control');
+        const range = wrapper ? wrapper.querySelector('.mu-slider') : null;
+        if (range) range.value = v;
+    });
+}
+
+// Synchronise le champ numérique et le slider d'un même niveau (les deux partagent le
+// conteneur .mu-level-control), quel que soit celui des deux qu'on vient de modifier.
+function muSyncLevelControl(el) {
+    const wrapper = el.closest('.mu-level-control');
+    if (!wrapper) return;
+    const num = wrapper.querySelector('input[type="number"]');
+    const range = wrapper.querySelector('input[type="range"]');
+    if (!num || !range) return;
+
+    if (el.type === 'range') {
+        num.value = el.value;
+    } else {
+        const max = parseInt(range.getAttribute('max'), 10);
+        let v = parseInt(el.value, 10) || 0;
+        if (!isNaN(max) && v > max) v = max;
+        el.value = v;
+        range.value = v;
+    }
+}
+
+// Bouton de niveau rapide ("comme Clash Ninja") : applique le niveau cliqué à TOUTES les
+// instances de la carte (= même famille de bâtiment), champs numériques ET sliders.
+function muSetFamilyLevel(button, level) {
+    const card = button.closest('.mu-item');
+    if (!card) return;
+
+    card.querySelectorAll('.mu-level-control').forEach(wrapper => {
+        const num = wrapper.querySelector('input[type="number"]');
+        const range = wrapper.querySelector('input[type="range"]');
+        if (!num) return;
+        const max = parseInt(num.getAttribute('max'), 10);
+        const v = (!isNaN(max) && level > max) ? max : level;
+        num.value = v;
+        if (range) range.value = v;
     });
 }
 

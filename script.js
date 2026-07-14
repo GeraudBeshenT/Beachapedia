@@ -58,6 +58,11 @@ window.showTab = function(tabId) {
     if (directHeader) directHeader.classList.add('active');
     const overviewHeader = document.querySelector(`.menu-header[onclick*="openCategoryTab(this, '${tabId}')"]`);
     if (overviewHeader) overviewHeader.classList.add('active-parent');
+
+    // Sur mobile, on referme le tiroir de navigation une fois l'onglet choisi.
+    if (window.matchMedia('(max-width: 768px)').matches) {
+        document.body.classList.remove('mobile-menu-open');
+    }
 };
 
 // Navigation clavier/souris précédent-suivant du navigateur, ou édition manuelle de l'URL :
@@ -469,6 +474,14 @@ window.openCategoryTab = function(element, tabId) {
 // SIDEBAR RÉTRACTABLE (façon ARCTracker.io)
 // ==========================================================================
 window.toggleSidebar = function() {
+    // Sur mobile, le même bouton (hamburger / icon_gacha) ouvre et ferme
+    // le tiroir de navigation en tête de page, au lieu de réduire la
+    // sidebar façon desktop.
+    if (window.matchMedia('(max-width: 768px)').matches) {
+        document.body.classList.toggle('mobile-menu-open');
+        return;
+    }
+
     const layout = document.querySelector('.main-layout');
     if (!layout) return;
     const collapsed = layout.classList.toggle('sidebar-collapsed');
@@ -491,6 +504,23 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
+// --- Tiroir mobile : fermeture automatique ---------------------------------
+// Un clic en dehors de la sidebar (donc sur le fond assombri ou le contenu)
+// referme le tiroir. On repasse aussi en fermé si l'écran repasse en desktop.
+document.addEventListener('click', function(e) {
+    if (!document.body.classList.contains('mobile-menu-open')) return;
+    const sidebar = document.querySelector('.sidebar');
+    if (sidebar && !sidebar.contains(e.target)) {
+        document.body.classList.remove('mobile-menu-open');
+    }
+});
+
+window.addEventListener('resize', function() {
+    if (!window.matchMedia('(max-width: 768px)').matches) {
+        document.body.classList.remove('mobile-menu-open');
+    }
+});
+
 // ==========================================================================
 // SÉLECTEUR DE LANGUE (sidebar)
 // ==========================================================================
@@ -505,25 +535,17 @@ window.selectLang = function(element) {
     const label = element.getAttribute('data-label');
     const code = element.getAttribute('data-lang');
 
-    const flagEl = document.getElementById('currentLangFlag');
-    const labelEl = document.getElementById('currentLangLabel');
-    if (flagEl) flagEl.textContent = flag;
-    if (labelEl) labelEl.textContent = label;
+    // 1. Met à jour l'affichage
+    document.getElementById('currentLangFlag').textContent = flag;
+    document.getElementById('currentLangLabel').textContent = label;
 
+    // 2. Ferme le menu
     document.querySelectorAll('.lang-option').forEach(opt => opt.classList.remove('selected'));
     element.classList.add('selected');
+    document.getElementById('langDropdown')?.classList.remove('open');
 
-    const dropdown = document.getElementById('langDropdown');
-    if (dropdown) dropdown.classList.remove('open');
-
-    try {
-        localStorage.setItem('siteLang', code);
-    } catch (e) {
-        console.warn("localStorage indisponible :", e);
-    }
-
-    // TODO : brancher ici le vrai système de traduction (texts.csv de Boom Beach)
-    // une fois que la structure multilingue du back-end sera prête.
+    // 3. 👇 NOUVEAU : Redirige avec le paramètre ?lang=XX
+    window.location.href = window.location.pathname + '?lang=' + code;
 };
 
 // Ferme le menu déroulant des langues si on clique ailleurs sur la page

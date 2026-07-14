@@ -93,18 +93,39 @@ function muRenderBuildingsSection(array $buildings): string {
             $html .= "<div class='mu-item-name-wrapper'><span class='mu-item-name'>{$nom}</span> <span class='mu-item-max'>(max {$max})</span></div>";
             $html .= "</div>";
 
+            // 🔥 Boutons de niveau rapide (1 à niveau_max) : "comme Clash Ninja", appliquent
+            // le niveau choisi à TOUTES les instances de cette carte (= même famille de bâtiment,
+            // ex. les 4 Scieries d'un coup).
+            if ($max > 0) {
+                $html .= "<div class='mu-quick-levels'>";
+                for ($lvl = 1; $lvl <= $max; $lvl++) {
+                    $html .= "<button type='button' class='mu-quick-btn' onclick='muSetFamilyLevel(this, {$lvl})'>{$lvl}</button>";
+                }
+                $html .= "</div>";
+            }
+
             if ($nb_instances === 1) {
                 $inst = $b['instances'][0];
-                $html .= "<input type='number' class='mu-input mu-building' min='0' max='{$max}'
-                            data-building='{$b['id_building']}' data-instance='{$inst['id_instance']}'
-                            value='{$inst['niveau']}'>";
+                $html .= "<div class='mu-level-control'>
+                    <input type='number' class='mu-input mu-building' min='0' max='{$max}'
+                           data-building='{$b['id_building']}' data-instance='{$inst['id_instance']}'
+                           value='{$inst['niveau']}' oninput='muSyncLevelControl(this)'>
+                    <input type='range' class='mu-slider mu-building-slider' min='0' max='{$max}'
+                           data-building='{$b['id_building']}' data-instance='{$inst['id_instance']}'
+                           value='{$inst['niveau']}' oninput='muSyncLevelControl(this)'>
+                </div>";
             } else {
                 $html .= "<div class='mu-instances'>";
                 foreach ($b['instances'] as $inst) {
                     $html .= "<label class='mu-instance'>#{$inst['id_instance']}
-                        <input type='number' class='mu-input mu-building' min='0' max='{$max}'
-                               data-building='{$b['id_building']}' data-instance='{$inst['id_instance']}'
-                               value='{$inst['niveau']}'></label>";
+                        <div class='mu-level-control'>
+                            <input type='number' class='mu-input mu-building' min='0' max='{$max}'
+                                   data-building='{$b['id_building']}' data-instance='{$inst['id_instance']}'
+                                   value='{$inst['niveau']}' oninput='muSyncLevelControl(this)'>
+                            <input type='range' class='mu-slider mu-building-slider' min='0' max='{$max}'
+                                   data-building='{$b['id_building']}' data-instance='{$inst['id_instance']}'
+                                   value='{$inst['niveau']}' oninput='muSyncLevelControl(this)'>
+                        </div></label>";
                 }
                 $html .= "</div>";
             }
