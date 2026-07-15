@@ -891,27 +891,237 @@ button.btn-upgrade-talent {
     color: #34495e;
 }
 
-.qg-card {
-    background: #1a1f25;
+/* ==========================================================================
+   PANNEAU QUARTIER GÉNÉRAL (modal_qg.php)
+   ========================================================================== */
+
+.qg-panel {
+    width: 75%;
+    margin: 0 auto 30px auto;
+    background: #3C7891;
     border: 1px solid #3e4a56;
-    border-radius: 12px;
-    padding: 20px;
+    border-radius: 14px;
     color: #dcdde1;
     font-family: sans-serif;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-    max-width: 640px;
-    width: 100%;
+    /* box-shadow: 0 4px 15px rgba(0,0,0,0.5); */
+    overflow: hidden;
     box-sizing: border-box;
-    margin: 0 0 20px 0;
+    border: 10px solid #3C7891;
 }
-    .qg-header { display: flex; align-items: center; gap: 20px; border-bottom: 1px solid #3e4a56; padding-bottom: 15px; margin-bottom: 15px; }
-    .qg-cost-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 15px; }
-    .cost-item { background: #2f3640; padding: 8px; border-radius: 6px; text-align: center; font-size: 0.85em; display: flex;
-    justify-content: center;}
-    .qg-cost{
-        margin-left: 10px;
-        vertical-align: baseline;
-    }
+
+/* Bandeau bleu du haut avec le nom du QG (traduit) + son niveau */
+.qg-panel-header {
+    background: #3C7891;
+    padding: 16px 24px;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.qg-panel-header h2 {
+    margin: 0;
+    font-family: 'Bangers', cursive;
+    letter-spacing: 0.5px;
+    font-size: 1.7em;
+    color: #ecf0f1;
+    text-shadow: 0 2px 0 rgba(0,0,0,0.35);
+}
+
+.qg-panel-header-sub {
+    font-size: 0.9em;
+    color: #d4e8ef;
+    font-weight: 600;
+}
+
+/* Corps : image à gauche | déblocages au milieu | coûts/bouton à droite */
+.qg-panel-body {
+    display: grid;
+    grid-template-columns: 220px 1fr 260px;
+    gap: 24px;
+    padding: 24px;
+    align-items: stretch;
+    background: #F4E5C1;
+}
+
+.qg-panel-visual {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0,0,0,0.2);
+    border-radius: 12px;
+    padding: 10px;
+}
+
+.qg-panel-visual img {
+    max-width: 100%;
+    height: auto;
+    filter: drop-shadow(0 5px 10px rgba(0,0,0,0.4));
+}
+
+/* Colonne centrale : bâtiments/troupes débloqués au niveau suivant */
+.qg-panel-unlocks {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+}
+
+.qg-panel-subtitle {
+    margin: 0;
+    font-family: 'Bangers', cursive;
+    letter-spacing: 0.5px;
+    font-size: 1.15em;
+    color: #1abc9c;
+}
+
+.qg-unlocks-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+    gap: 14px;
+    align-content: start;
+}
+
+.qg-unlock-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    text-align: center;
+}
+
+.qg-unlock-icon-wrap {
+    position: relative;
+    width: 64px;
+    height: 64px;
+}
+
+.qg-unlock-icon-wrap img {
+    width: 64px;
+    height: 64px;
+    object-fit: contain;
+    background: #2f3640;
+    border-radius: 10px;
+    padding: 6px;
+    box-sizing: border-box;
+}
+
+.qg-unlock-badge {
+    position: absolute;
+    bottom: -6px;
+    right: -6px;
+    background: #EE893E;
+    color: #1a1208;
+    font-size: 0.65em;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 8px;
+    white-space: nowrap;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.4);
+}
+
+.qg-unlock-name {
+    line-height: 1.2;
+    color: #fff;
+    text-shadow: 1px 1px 1px black, -1px -1px 1px black, 1px -1px 1px black, -1px 1px 1px black, 0px -1px 1px black, 0px 1px 1px black, -1px 0px 1px black, 1px 0px 1px black, 0 2px 1px black, -1px 3px 1px black, 1px 3px 1px black;
+}
+
+.qg-unlocks-empty {
+    color: #8aa0b0;
+    font-size: 0.9em;
+    font-style: italic;
+    margin: 0;
+}
+
+/* Colonne de droite : coûts, temps, XP, bouton d'amélioration */
+.qg-panel-side {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.qg-cost-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    background: #2f3640;
+    border-radius: 10px;
+    padding: 12px;
+}
+
+.qg-cost-row,
+.qg-info-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.95em;
+    font-weight: 600;
+    color: #fff;
+    text-shadow: 1px 1px 1px black, -1px -1px 1px black, 1px -1px 1px black, -1px 1px 1px black, 0px -1px 1px black, 0px 1px 1px black, -1px 0px 1px black, 1px 0px 1px black, 0 2px 1px black, -1px 3px 1px black, 1px 3px 1px black;
+}
+
+.qg-cost-row img,
+.qg-info-row img {
+    width: 28px;
+    height: 28px;
+    object-fit: contain;
+}
+
+.qg-btn-upgrade {
+    margin-top: auto;
+    padding: 12px 0;
+    border: none;
+    background: linear-gradient(90deg, #A7E74A, #8FCC43);
+    color: #fff;
+    text-shadow: 1px 1px 1px black, -1px -1px 1px black, 1px -1px 1px black, -1px 1px 1px black, 0px -1px 1px black, 0px 1px 1px black, -1px 0px 1px black, 1px 0px 1px black, 0 2px 1px black, -1px 3px 1px black, 1px 3px 1px black;
+    font-family: 'Bangers', cursive;
+    font-size: 1.25em;
+    letter-spacing: 1px;
+    cursor: pointer;
+    box-shadow: 0 4px 0 #7BB428;
+    transition: transform 0.1s ease, box-shadow 0.1s ease, background 0.15s ease;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    line-height: 1.3;
+}
+
+.qg-btn-upgrade-sub {
+    font-family: sans-serif;
+    font-size: 0.5em;
+    letter-spacing: 0;
+    font-weight: 600;
+    text-transform: none;
+}
+
+.qg-btn-upgrade:hover { background: #7BB428; 
+    box-shadow: 0 4px 0 #A7E74A; }
+
+.qg-btn-upgrade:active {
+    transform: translateY(3px);
+    box-shadow: 0 1px 0 #b9631f;
+}
+
+.qg-panel-maxed {
+    background: #F4E5C1;
+    grid-template-columns: 220px 1fr;
+    align-items: center;
+}
+
+.qg-maxed-text {
+    text-align: center;
+    color: #1abc9c;
+    font-weight: 700;
+    font-size: 1.1em;
+    margin: 0;
+}
+
+@media (max-width: 900px) {
+    .qg-panel { width: 95%; }
+    .qg-panel-body { grid-template-columns: 1fr; }
+    .qg-panel-maxed { grid-template-columns: 1fr; }
+}
 
 /* ==========================================================================
    CARTES DE BÂTIMENTS (renderBuildingsTable)
@@ -2073,18 +2283,103 @@ button.btn-upgrade-talent {
 
 .dash-subcards-row:last-child { margin-bottom: 0; }
 
+/* ==========================================================================
+   RÉSUMÉ "RESSOURCES POUR TOUT FINIR AU MAX" (Tableau de Bord)
+   ========================================================================== */
+.resource-summary {
+    margin-top: 20px;
+}
+
+.resource-summary-title {
+    margin: 0 0 16px 0;
+    font-family: 'Bangers', cursive;
+    letter-spacing: 1px;
+    font-size: 1.3em;
+    color: #ecf0f1;
+}
+
+.resource-summary-tables {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+}
+
+.resource-summary-table-wrap {
+    flex: 1 1 420px;
+    min-width: 320px;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    padding: 14px 16px 18px;
+}
+
+.resource-summary-table-wrap h4 {
+    margin: 0 0 12px 0;
+    font-size: 1em;
+    color: #1abc9c;
+    font-weight: 700;
+}
+
+.resource-summary-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.88em;
+    color: #dcdde1;
+}
+
+.resource-summary-table th,
+.resource-summary-table td {
+    padding: 8px 6px;
+    text-align: center;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    white-space: nowrap;
+}
+
+.resource-summary-table th:first-child,
+.resource-summary-table td:first-child {
+    text-align: left;
+}
+
+.resource-summary-table th {
+    color: #8aa0b0;
+    font-weight: 700;
+    font-size: 0.85em;
+}
+
+.resource-summary-table th img {
+    width: 20px;
+    height: 20px;
+    object-fit: contain;
+    vertical-align: middle;
+}
+
+.resource-summary-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.resource-summary-table tr.resource-summary-total td {
+    font-weight: 700;
+    color: #EE893E;
+    border-top: 2px solid #EE893E;
+    border-bottom: none;
+}
+
+@media (max-width: 900px) {
+    .resource-summary-tables { flex-direction: column; }
+}
+
 /* 🔥 Refonte façon carte "Succès" du jeu : icône qui déborde en haut, titre centré,
    div d'info, puis une rangée basse [barre de progression | %age vers le max du max]
    (reprend la disposition Progression / Prime de la carte Succès). */
 .dash-subcard {
-    position: relative;
+        position: relative;
     overflow: visible;
     display: flex;
     flex-direction: column;
     flex: 0 0 280px;
     width: 280px;
     height: 280px;
-    background: #1c2c39;
+    background: #1C9BC7;
     border: 1px solid #2c3e50;
     border-radius: 10px;
     padding: 30px 20px 20px;
@@ -2093,10 +2388,16 @@ button.btn-upgrade-talent {
     box-sizing: border-box;
     text-align: center;
     transition: transform 0.15s ease, border-color 0.15s ease;
+    justify-content: space-between;
 }
 
 .dash-subcard.clickable { cursor: pointer; }
-.dash-subcard.clickable:hover { transform: translateY(-2px); border-color: #1abc9c; }
+.dash-subcard.clickable:hover {    
+    display: flex;
+    transform: translateY(-2px);
+    border-color: #1abc9c;
+    justify-content: space-between;
+}
 .dash-subcard.disabled { opacity: 0.55; }
 /* La carte "Chefs de bataillon" reste volontairement large (elle occupe toute la ligne) :
    on annule le carré fixe uniquement pour celle-là. */
@@ -2135,13 +2436,13 @@ button.btn-upgrade-talent {
 }
 
 .dash-subcard-info {
-    background: rgba(0, 0, 0, 0.25);
+    background: #1c2c39;
     border-radius: 6px;
     padding: 8px 10px;
     font-size: 0.8em;
     color: #bdc3c7;
     margin-bottom: 10px;
-    height: 48px;
+    height: 100px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -2163,7 +2464,7 @@ button.btn-upgrade-talent {
     display: flex;
     align-items: center;
     gap: 10px;
-    margin-top: auto;
+    /* margin-top: auto; */
 }
 
 .dash-subcard-progress-col { flex: 2 1 auto; min-width: 0; }
@@ -2177,8 +2478,11 @@ button.btn-upgrade-talent {
 
 .dash-subcard-percent-label {
     font-size: 0.65em;
-    color: #8aa0b0;
+    color: #fff;
+    font-family: Bangers;
+    letter-spacing: 2px;
     text-transform: uppercase;
+    text-shadow: 1px 1px 1px black, -1px -1px 1px black, 1px -1px 1px black, -1px 1px 1px black, 0px -1px 1px black, 0px 1px 1px black, -1px 0px 1px black, 1px 0px 1px black, 0 2px 1px black, -1px 3px 1px black, 1px 3px 1px black;
 }
 
 .dash-subcard-percent-value {
@@ -2419,7 +2723,8 @@ button.btn-upgrade-talent {
        colonnes repassent en 1 colonne / empilement vertical.
        --------------------------------------------------------------------- */
     .qg-grid { grid-template-columns: 1fr; }
-    .qg-cost-grid { grid-template-columns: 1fr; }
+    .qg-panel { width: 95%; }
+    .qg-panel-body { grid-template-columns: 1fr; }
 
     .dashboard-widgets { flex-direction: column; }
     .widget-card { width: 100%; }

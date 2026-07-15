@@ -30,10 +30,11 @@ $qg          = isset($input['qg']) ? (int)$input['qg'] : null;
 $buildings   = is_array($input['buildings'] ?? null) ? $input['buildings'] : [];
 $characters  = is_array($input['characters'] ?? null) ? $input['characters'] : [];
 $abilities   = is_array($input['abilities'] ?? null) ? $input['abilities'] : [];
+$engravings  = is_array($input['engravings'] ?? null) ? $input['engravings'] : [];
 
 // Petites limites de sécurité pour éviter un payload absurde/malveillant
 $MAX_ROWS = 20000;
-if (count($buildings) + count($characters) + count($abilities) > $MAX_ROWS) {
+if (count($buildings) + count($characters) + count($abilities) + count($engravings) > $MAX_ROWS) {
     echo json_encode(['success' => false, 'message' => 'Trop de lignes envoyées en une seule fois.']);
     exit;
 }
@@ -175,7 +176,25 @@ try {
         }
     }
 
-    // 5. Recalcul de l'XP totale du joueur à partir de l'état final
+    // 5. Gravures : upsert sur (id_player, id_engraving)
+    $nb_engravings = 0;
+    if (!empty($engravings)) {
+        $stmt_e = $pdo->prepare("
+            INSERT INTO progress_engraving (id_player, id_engraving, niveau)
+            VALUES (?, ?, ?)
+            ON DUPLICATE KEY UPDATE niveau = VALUES(niveau)
+        ");
+        foreach ($engravings as $row) {
+            $id_engraving = (int)($row['id_engraving'] ?? 0);
+            $niveau       = max(0, (int)($row['niveau'] ?? 0));
+            if ($id_engraving <= 0) continue;
+
+            $stmt_e->execute([$id_player, $id_engraving, $niveau]);
+            $nb_engravings++;
+        }
+    }
+
+    // 6. Recalcul de l'XP totale du joueur à partir de l'état final
     $nouvelle_xp = muRecomputeExperience($pdo, $id_player);
     $stmt_xp = $pdo->prepare("UPDATE joueurs SET experience = ? WHERE id_player = ?");
     $stmt_xp->execute([$nouvelle_xp, $id_player]);
@@ -188,6 +207,7 @@ try {
         'nb_buildings'  => $nb_buildings,
         'nb_characters' => $nb_characters,
         'nb_abilities'  => $nb_abilities,
+        'nb_engravings' => $nb_engravings,
         'experience'    => $nouvelle_xp,
     ]);
 

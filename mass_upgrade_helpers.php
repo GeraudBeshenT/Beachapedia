@@ -32,6 +32,7 @@ function muBuildData(PDO $pdo, string $id_player, int $qg): array {
     return [
         'buildings'   => muGetBuildingsForQG($pdo, $id_player, $qg),
         'characters'  => muGetCharactersForQG($pdo, $id_player, $qg),
+        'engravings'  => muGetEngravings($pdo, $id_player),
     ];
 }
 
@@ -132,7 +133,7 @@ function muGetBuildingsForQG(PDO $pdo, string $id_player, int $qg): array {
 function muGetCharactersForQG(PDO $pdo, string $id_player, int $qg): array {
     // Modifie la requête pour inclure 'Spell'
     $stmt = $pdo->prepare("
-        SELECT ci.id AS id_character, ci.TID, ci.Class, ci.Officer, ci.HQUnlock, t.FR AS nom
+        SELECT ci.id AS id_character, ci.TID, ci.Class, ci.Officer, ci.HQUnlock, ci.Type, ci.Display, t.FR AS nom
         FROM characterid ci
         LEFT JOIN texts t ON t.TID = ci.TID
         WHERE ci.HQUnlock <= ?
@@ -146,7 +147,7 @@ function muGetCharactersForQG(PDO $pdo, string $id_player, int $qg): array {
             WHEN 'Spell' THEN 5
             ELSE 6
           END,
-          ci.HQUnlock ASC, ci.TID ASC
+          ci.Type ASC, ci.Display ASC
     ");
     $stmt->execute([$qg]);
     $chars = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -264,6 +265,62 @@ function muGetCharactersForQG(PDO $pdo, string $id_player, int $qg): array {
         $category = $c['Class'];
         if (!isset($result[$category])) $result[$category] = [];
         $result[$category][] = $entry;
+    }
+
+    return $result;
+}
+
+/**
+ * Gravures (Offensives / Défensives), fusionnées avec la progression réelle du joueur.
+ * Même logique / mêmes tables que la section 12 de queries.php (engravingid, engravings,
+ * progress_engraving), mais sans filtrage par QG : les gravures ne sont pas gatées par le
+ * QG comme les bâtiments/troupes, seulement par le niveau du Graveur (géré côté affichage
+ * dashboard via $tab_gravures_unlocked, pas pertinent pour Mass Upgrade qui liste tout).
+ *
+ * @return array{Offensive: array, Defensive: array}
+ */
+function muGetEngravings(PDO $pdo, string $id_player): array {
+    // 1. Progression actuelle, indexée par id_engraving numérique
+    $engravings_progress = [];
+    try {
+        $stmt_prog = $pdo->prepare("SELECT id_engraving, niveau FROM progress_engraving WHERE id_player = ?");
+        $stmt_prog->execute([$id_player]);
+        foreach ($stmt_prog->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $engravings_progress[(int)$row['id_engraving']] = (int)$row['niveau'];
+        }
+    } catch (PDOException $e) {
+        error_log("Erreur muGetEngravings (progress_engraving) : " . $e->getMessage());
+    }
+
+    // 2. Liste des gravures + niveau max (MAX(Quality) par TID)
+    $result = ['Offensive' => [], 'Defensive' => []];
+    try {
+        $stmt_eng = $pdo->query("
+            SELECT ei.id AS id_engraving, e.TID, ei.Category, ei.Type, ei.IconExportName,
+                   IFNULL(t.FR, e.TID) AS nom, MAX(e.Quality) AS niveau_max
+            FROM engravings e
+            JOIN engravingid ei ON e.TID = ei.TID
+            LEFT JOIN texts t ON e.TID = t.TID
+            GROUP BY ei.id, e.TID, ei.Category, ei.Type, ei.IconExportName, t.FR
+            ORDER BY ei.Type ASC, e.TID ASC
+        ");
+        foreach ($stmt_eng->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $id_engraving = (int)$row['id_engraving'];
+            $cat = $row['Category'];
+            if (!isset($result[$cat])) continue; // catégorie inconnue, on ignore
+
+            $result[$cat][] = [
+                'id_engraving' => $id_engraving,
+                'TID'          => $row['TID'],
+                'nom'          => $row['nom'] ?: $row['TID'],
+                'IconExportName' => $row['IconExportName'],
+                'Type'         => $row['Type'],
+                'niveau'       => $engravings_progress[$id_engraving] ?? 0,
+                'niveau_max'   => (int)$row['niveau_max'],
+            ];
+        }
+    } catch (PDOException $e) {
+        error_log("Erreur muGetEngravings (liste) : " . $e->getMessage());
     }
 
     return $result;

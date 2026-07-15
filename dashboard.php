@@ -4,8 +4,12 @@ session_start();
 
 // 👇 NOUVEAU : Gestion de la langue AVANT d'inclure queries.php
 if (isset($_GET['lang'])) {
-    $_SESSION['lang'] = $_GET['lang'];
-    setcookie('lang', $_GET['lang'], time() + (86400 * 30), "/"); // 30 jours
+    $allowed_langs_get = ['EN', 'DE', 'ES', 'FR', 'IT', 'JP', 'PT', 'ZH-HANS', 'NL', 'NO', 'TR', 'KR', 'RU', 'ZH-HANT', 'AR', 'ID', 'MS', 'VI', 'TH', 'FI'];
+    $lang_upper = strtoupper($_GET['lang']);
+    if (in_array($lang_upper, $allowed_langs_get)) {
+        $_SESSION['lang'] = $lang_upper;
+        setcookie('lang', $lang_upper, time() + (86400 * 30), "/"); // 30 jours
+    }
 }
 
 // 2. Vérification de la sécurité
@@ -69,27 +73,30 @@ window.onload = function() {
 <?php
 // Liste des langues disponibles (basée sur les 20 locales du texts.csv de Boom Beach).
 // Codes/drapeaux à ajuster une fois le vrai fichier de traduction branché.
+// 👇 Codes alignés sur les 14 colonnes réellement disponibles dans la table `texts`
+// (voir $allowed_langs dans queries.php). N'ajoute une entrée ici que si la colonne
+// correspondante existe bien dans `texts`, sinon la sélection retombera sur FR.
 $bb_languages = [
-    ['code' => 'fr',    'flag' => '🇫🇷', 'label' => 'Français'],
-    ['code' => 'en',    'flag' => '🇬🇧', 'label' => 'English'],
-    ['code' => 'de',    'flag' => '🇩🇪', 'label' => 'Deutsch'],
-    ['code' => 'es',    'flag' => '🇪🇸', 'label' => 'Español'],
-    ['code' => 'es-mx', 'flag' => '🇲🇽', 'label' => 'Español (Latam)'],
-    ['code' => 'it',    'flag' => '🇮🇹', 'label' => 'Italiano'],
-    ['code' => 'pt-br', 'flag' => '🇧🇷', 'label' => 'Português (Brasil)'],
-    ['code' => 'nl',    'flag' => '🇳🇱', 'label' => 'Nederlands'],
-    ['code' => 'pl',    'flag' => '🇵🇱', 'label' => 'Polski'],
-    ['code' => 'ru',    'flag' => '🇷🇺', 'label' => 'Русский'],
-    ['code' => 'tr',    'flag' => '🇹🇷', 'label' => 'Türkçe'],
-    ['code' => 'ar',    'flag' => '🇸🇦', 'label' => 'العربية'],
-    ['code' => 'zh-cn', 'flag' => '🇨🇳', 'label' => '简体中文'],
-    ['code' => 'zh-tw', 'flag' => '🇹🇼', 'label' => '繁體中文'],
-    ['code' => 'ja',    'flag' => '🇯🇵', 'label' => '日本語'],
-    ['code' => 'ko',    'flag' => '🇰🇷', 'label' => '한국어'],
-    ['code' => 'th',    'flag' => '🇹🇭', 'label' => 'ไทย'],
-    ['code' => 'vi',    'flag' => '🇻🇳', 'label' => 'Tiếng Việt'],
-    ['code' => 'no',    'flag' => '🇳🇴', 'label' => 'Norsk'],
-    ['code' => 'fi',    'flag' => '🇫🇮', 'label' => 'Suomi'],
+    ['code' => 'EN', 'flag' => '🇬🇧', 'label' => 'English'],
+    ['code' => 'DE', 'flag' => '🇩🇪', 'label' => 'Deutsch'],
+    ['code' => 'ES', 'flag' => '🇪🇸', 'label' => 'Español'],
+    ['code' => 'FR', 'flag' => '🇫🇷', 'label' => 'Français'],
+    ['code' => 'IT', 'flag' => '🇮🇹', 'label' => 'Italiano'],
+    ['code' => 'JP', 'flag' => '🇯🇵', 'label' => '日本語'],
+    ['code' => 'ZH-HANS', 'flag' => '🇨🇳', 'label' => '简体中文'],
+    ['code' => 'ZH-HANT', 'flag' => '🇹🇼', 'label' => '繁體中文'],
+    ['code' => 'KR', 'flag' => '🇰🇷', 'label' => '한국어'],
+    ['code' => 'NL', 'flag' => '🇳🇱', 'label' => 'Nederlands'],
+    ['code' => 'NO', 'flag' => '🇳🇴', 'label' => 'Norsk'],
+    ['code' => 'PT', 'flag' => '🇵🇹', 'label' => 'Português'],
+    ['code' => 'RU', 'flag' => '🇷🇺', 'label' => 'Русский'],
+    ['code' => 'TR', 'flag' => '🇹🇷', 'label' => 'Türkçe'],
+    ['code' => 'AR', 'flag' => '🇸🇦', 'label' => 'العربية'],
+    ['code' => 'MS', 'flag' => '🇲🇾', 'label' => 'Bahasa Melayu'],
+    ['code' => 'ID', 'flag' => '🇮🇩', 'label' => 'Bahasa Indonesia'],
+    ['code' => 'VI', 'flag' => '🇻🇳', 'label' => 'Tiếng Việt'],
+    ['code' => 'TH', 'flag' => '🇹🇭', 'label' => 'ไทย'],
+    ['code' => 'FI', 'flag' => '🇫🇮', 'label' => 'Suomi'],
 ];
 ?>
 
@@ -218,16 +225,30 @@ $bb_languages = [
                 </div>
             </div>
 
+            <?php
+                // Langue actuellement active (celle utilisée par queries.php), pour afficher le bon état initial
+                $current_lang_code = $_SESSION['lang'] ?? 'FR';
+                $current_lang_info = null;
+                foreach ($bb_languages as $lg) {
+                    if ($lg['code'] === $current_lang_code) {
+                        $current_lang_info = $lg;
+                        break;
+                    }
+                }
+                if (!$current_lang_info) {
+                    $current_lang_info = $bb_languages[0]; // fallback FR
+                }
+            ?>
             <div class="sidebar-footer">
                 <div class="lang-select" id="langSelect">
                     <button type="button" class="lang-btn" onclick="toggleLangMenu(event)" data-tooltip="Langue">
-                        <span class="lang-flag" id="currentLangFlag">🇫🇷</span>
-                        <span class="lang-label" id="currentLangLabel">Français</span>
+                        <span class="lang-flag" id="currentLangFlag"><?php echo $current_lang_info['flag']; ?></span>
+                        <span class="lang-label" id="currentLangLabel"><?php echo htmlspecialchars($current_lang_info['label']); ?></span>
                         <span class="lang-caret">▾</span>
                     </button>
                     <div class="lang-dropdown" id="langDropdown">
                         <?php foreach ($bb_languages as $lg): ?>
-                        <button type="button" class="lang-option<?php echo $lg['code'] === 'fr' ? ' selected' : ''; ?>" data-lang="<?php echo $lg['code']; ?>" data-flag="<?php echo $lg['flag']; ?>" data-label="<?php echo htmlspecialchars($lg['label']); ?>" onclick="selectLang(this)">
+                        <button type="button" class="lang-option<?php echo $lg['code'] === $current_lang_code ? ' selected' : ''; ?>" data-lang="<?php echo $lg['code']; ?>" data-flag="<?php echo $lg['flag']; ?>" data-label="<?php echo htmlspecialchars($lg['label']); ?>" onclick="selectLang(this)">
                             <span class="lang-flag"><?php echo $lg['flag']; ?></span>
                             <span><?php echo htmlspecialchars($lg['label']); ?></span>
                         </button>
@@ -352,15 +373,26 @@ $bb_languages = [
 
 
         <div id="Dashboard" class="tab-content">
-            <?php renderMainDashboard(
-                $stats_buildings_global, $stats_res, $stats_def, $stats_army, $stats_trap,
-                $stats_troupes, $stats_proto, $stats_heros, $stats_officiers_capa, $chefs_debloques, $chefs_total,
-                $stats_capacanon,
-                $stats_gravures, $stats_gravures_off, $stats_gravures_def,
-                $stats_tribus, $stats_monument,
-                $qg
-            ); ?>
+            <?php
+                renderMainDashboard(
+                    $stats_buildings_global, $stats_res, $stats_def, $stats_army, $stats_trap,
+                    $stats_troupes, $stats_proto, $stats_heros, $stats_officiers_capa, $chefs_debloques, $chefs_total,
+                    $stats_capacanon,
+                    $stats_gravures, $stats_gravures_off, $stats_gravures_def,
+                    $stats_tribus, $stats_monument,
+                    $qg
+                );
+            ?>
         </div>
+
+        <?php
+            // Ressources nécessaires pour tout finir au max (jusqu'au niveau max ATTEIGNABLE
+            // au QG actuel / à l'Arsenal actuel selon la catégorie) : 1 ligne par
+            // sous-catégorie + Total. Calculées une fois ici, affichées sous les cartes
+            // de chaque page de navigation (Building-Overview / Army-Overview).
+            $resume_batiments = getBuildingsResourceSummary($buildings_display);
+            $resume_armee     = getArmyResourceSummary($pdo, $id_player, $troupes_list, $proto_list, $heros_list, $officers_list, $capacanon_list);
+        ?>
 
         <div id="Building-Overview" class="tab-content">
             <?php renderCategoryNav('Bâtiments', [
@@ -369,6 +401,7 @@ $bb_languages = [
                 ['label' => 'Bâtiments de support',  'sub' => round($stats_army['percent']) . '% complété', 'tab' => 'Building-Army',    'icon' => '🏰'],
                 ['label' => 'Pièges',  'sub' => round($stats_trap['percent']) . '% complété', 'tab' => 'Building-Trap',    'icon' => '💣'],
             ]); ?>
+            <?php renderBuildingResourceSummaryTable($resume_batiments); ?>
         </div>
 
         <div id="Army-Overview" class="tab-content">
@@ -379,6 +412,7 @@ $bb_languages = [
                 ['label' => 'Chef de bataillon',   'tab' => 'Character-Leader', 'icon' => '<img src="images/icons/OfficerIcon.webp" style="width: 50px;"/>'],
                 ['label' => 'Capacité de canonnière', 'tab' => 'Character-Spell', 'icon' => '🚤'],
             ]); ?>
+            <?php renderArmyResourceSummaryTable($resume_armee); ?>
         </div>
 
         <div id="Engraving-Overview" class="tab-content">

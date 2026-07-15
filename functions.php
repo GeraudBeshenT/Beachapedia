@@ -103,12 +103,21 @@ function renderBuildingsTable($buildings_list) {
             $is_maxed = ($niv >= $max);
             $maxed_attr = $is_maxed ? "1" : "0";
 
+            // Mines (Mine / Super mine / Électromine) : plus de construction à l'or par
+            // instance, on recherche un niveau unique à l'Arsenal qui s'applique à toutes
+            // les mines posées. Voir MINE_TIDS / getBuildingsDisplay dans queries.php.
+            $is_mine          = !empty($b['is_mine']);
+            $required_arsenal = (int)($b['required_arsenal'] ?? 0);
+            $arsenal_ok       = $b['arsenal_ok'] ?? true;
+
             // L'instance reste purement interne (data-instance), jamais affichée à l'écran
             $safe_id = "bld-" . preg_replace('/[^a-zA-Z0-9]/', '', $tid) . "-{$inst}";
 
             // Libellé du bouton : Construire si jamais débloqué, sinon Améliorer
             if ($is_maxed) {
                 $btn_text = "Max !";
+            } elseif ($is_mine && !$arsenal_ok) {
+                $btn_text = "Verrouillé";
             } elseif ($debloque === 0) {
                 $btn_text = "Construire";
             } else {
@@ -120,7 +129,7 @@ function renderBuildingsTable($buildings_list) {
             echo "
             <div class='building-card' id='card-{$safe_id}' data-tid='{$tid}' data-instance='{$inst}' data-maxed='{$maxed_attr}'>
                 <div class='building-card-visual'>
-                    <img class='building-card-img' src='images/{$img}.WEBP' alt='{$nom}' onerror=\"this.src='images/default-building.png'\">
+                    <img class='building-card-img' src='images/{$img}.webp' alt='{$nom}' onerror=\"this.src='images/default-building.png'\">
                 </div>
 
                 <div class='building-card-info'>
@@ -146,6 +155,13 @@ function renderBuildingsTable($buildings_list) {
                 <div class='building-card-time'>
                     <img class='building-time-icon' src='images/icons/Time Icon.png' alt='Temps'>{$temps_txt}
                 </div>";
+
+                    if ($is_mine && !$arsenal_ok) {
+                        echo "
+                <div class='building-card-requirement' style='color:#e74c3c; font-size:0.85em; font-weight:600; margin-top:4px; text-align:center;'>
+                    Arsenal niveau {$required_arsenal} requis
+                </div>";
+                    }
                 } else {
                     $cout_bois   = $b['BuildCostWood']  ?? 0;
                     $cout_pierre = $b['BuildCostStone'] ?? 0;
@@ -163,7 +179,7 @@ function renderBuildingsTable($buildings_list) {
                 }
             }
 
-            $disabled = $is_maxed ? "disabled" : "";
+            $disabled = ($is_maxed || ($is_mine && !$arsenal_ok)) ? "disabled" : "";
             echo "
                 <div class='building-card-action'>
                     <button class='btn-upgrade' {$disabled}
@@ -307,6 +323,364 @@ function getOfficersCapaciteStats($pdo, $id_player, $officers_list) {
         'debloques' => $debloques,
         'total'     => count($officers_list),
     ];
+}
+
+/**
+ * ==========================================================================
+ * RÉSUMÉ "RESSOURCES POUR TOUT FINIR AU MAX" (carte du Tableau de Bord)
+ * ==========================================================================
+ * Deux tableaux : Bâtiments (Or/Bois/Pierre/Fer/Temps) et Armée
+ * (Or/Jetons Proto/Manuels de terrain/Temps), 1 ligne par catégorie + Total.
+ * Réutilise les totaux "remaining_*" déjà calculés dans queries.php pour
+ * chaque instance de bâtiment / chaque troupe-proto-héros-officier-capacité,
+ * donc même périmètre que le reste du dashboard (jusqu'au niveau max
+ * ATTEIGNABLE au QG actuel, pas le max absolu de fin de jeu).
+ */
+
+/**
+ * Bâtiments : agrège $buildings_display (issu de getBuildingsDisplay()) catégorie par
+ * catégorie, à partir des champs remaining_gold/wood/stone/iron/time_seconds déjà
+ * présents sur chaque instance.
+ */
+function getBuildingsResourceSummary($buildings_display) {
+    $categories = [
+        'Ressource' => 'Bâtiments Économiques',
+        'Defense'   => 'Bâtiments Défensifs',
+        'Army'      => 'Bâtiments de Renfort',
+        'Trap'      => 'Pièges',
+    ];
+
+    $resume = [];
+    $total = ['gold' => 0, 'wood' => 0, 'stone' => 0, 'iron' => 0, 'time_seconds' => 0];
+
+    foreach ($categories as $cat => $label) {
+        $s = ['gold' => 0, 'wood' => 0, 'stone' => 0, 'iron' => 0, 'time_seconds' => 0];
+        foreach (($buildings_display[$cat] ?? []) as $b) {
+            $s['gold']         += (int)($b['remaining_gold']         ?? 0);
+            $s['wood']         += (int)($b['remaining_wood']         ?? 0);
+            $s['stone']        += (int)($b['remaining_stone']        ?? 0);
+            $s['iron']         += (int)($b['remaining_iron']         ?? 0);
+            $s['time_seconds'] += (int)($b['remaining_time_seconds'] ?? 0);
+        }
+        foreach ($s as $k => $v) $total[$k] += $v;
+        $resume[$cat] = array_merge(['label' => $label], $s);
+    }
+
+    $resume['TOTAL'] = array_merge(['label' => 'Total'], $total);
+    return $resume;
+}
+
+/**
+ * Petit total (coût + temps en heures) sur une liste homogène issue de getFilteredUnits()
+ * (Troupes, Proto-troupes, Héros ou Capacités de canonnière), à partir des champs
+ * remaining_cost / remaining_time_h déjà calculés.
+ */
+function muSumRemainingBaseList($list) {
+    $cost = 0;
+    $time_h = 0.0;
+    foreach ($list as $u) {
+        $cost   += (int)($u['remaining_cost']    ?? 0);
+        $time_h += (float)($u['remaining_time_h'] ?? 0);
+    }
+    return ['cost' => $cost, 'time_h' => $time_h];
+}
+
+/**
+ * Coût restant (jusqu'au vrai plafond achetable, voir getAbilityRealMaxLevel) d'UNE
+ * capacité (active/passive de héros ou d'officier), à partir de son tableau 'levels'
+ * (Niveau, UpgradeCost, UpgradeTimeH — convention : la ligne Niveau=N décrit le coût
+ * du passage N -> N+1, donc on somme de current_level à real_max exclu).
+ */
+function muSumRemainingAbilityLevels($levels, $current_level) {
+    if (empty($levels)) return ['cost' => 0, 'time_h' => 0.0];
+
+    $real_max = getAbilityRealMaxLevel($levels);
+    $cost = 0;
+    $time_h = 0.0;
+    foreach ($levels as $row) {
+        $niveau = (int)$row['Niveau'];
+        if ($niveau >= (int)$current_level && $niveau < $real_max) {
+            $cost   += (float)($row['UpgradeCost']   ?? 0);
+            $time_h += (float)($row['UpgradeTimeH']  ?? 0);
+        }
+    }
+    return ['cost' => $cost, 'time_h' => $time_h];
+}
+
+/**
+ * Même principe que muSumRemainingAbilityLevels, mais en séparant le coût restant en
+ * 2 paliers : les capacités d'officier niveau 1 à 10 se paient en Manuels de terrain,
+ * les niveaux 11 à 13 se paient en Rapports d'activité. La ligne 'Niveau = N' décrit le
+ * coût du passage N -> N+1 : donc N < $tier_threshold reste dans le palier "manuel"
+ * (jusqu'à N=9 inclus pour atteindre le niveau 10), et N >= $tier_threshold bascule sur
+ * le palier "rapport" (dès la transition 10 -> 11).
+ */
+function muSumRemainingAbilityLevelsSplit($levels, $current_level, $tier_threshold = 10) {
+    $empty = ['manuel' => ['cost' => 0, 'time_h' => 0.0], 'rapport' => ['cost' => 0, 'time_h' => 0.0]];
+    if (empty($levels)) return $empty;
+
+    $real_max = getAbilityRealMaxLevel($levels);
+    $result = $empty;
+    foreach ($levels as $row) {
+        $niveau = (int)$row['Niveau'];
+        if ($niveau >= (int)$current_level && $niveau < $real_max) {
+            $tier   = ($niveau < $tier_threshold) ? 'manuel' : 'rapport';
+            $result[$tier]['cost']   += (float)($row['UpgradeCost']  ?? 0);
+            $result[$tier]['time_h'] += (float)($row['UpgradeTimeH'] ?? 0);
+        }
+    }
+    return $result;
+}
+
+/**
+ * Coût restant des TALENTS (Talent 1 à 5) des Chefs de bataillon passés en paramètre :
+ * pour chaque talent pas encore débloqué, son coût de déblocage (1ère et unique ligne
+ * officer_abilities pour ce TID). Nécessite quelques requêtes dédiées (pas de données
+ * pré-chargées côté getFilteredUnits pour les talents), regroupées au maximum.
+ */
+function getOfficersTalentsRemainingCost(PDO $pdo, $id_player, array $officer_ids) {
+    $result = ['cost' => 0, 'time_h' => 0.0];
+    $officer_ids = array_values(array_unique(array_filter(array_map('intval', $officer_ids))));
+    if (empty($officer_ids)) return $result;
+
+    // TID de chaque officier
+    $ph = implode(',', array_fill(0, count($officer_ids), '?'));
+    $stmt = $pdo->prepare("SELECT id, TID FROM characterid WHERE id IN ($ph)");
+    $stmt->execute($officer_ids);
+    $id_by_tid = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $id_by_tid[$row['TID']] = (int)$row['id'];
+    }
+    if (empty($id_by_tid)) return $result;
+
+    // Talents (TalentTID1..5) de ces officiers
+    $ph2 = implode(',', array_fill(0, count($id_by_tid), '?'));
+    $stmt2 = $pdo->prepare("SELECT * FROM officer_talents WHERE TID IN ($ph2)");
+    $stmt2->execute(array_keys($id_by_tid));
+    $talent_rows = $stmt2->fetchAll(PDO::FETCH_ASSOC);
+    if (empty($talent_rows)) return $result;
+
+    // Talents déjà débloqués du joueur (progress_ability.Debloque = 1)
+    $stmt3 = $pdo->prepare("SELECT id_character, id_ability FROM progress_ability WHERE id_player = ? AND Debloque = 1");
+    $stmt3->execute([$id_player]);
+    $unlocked = [];
+    foreach ($stmt3->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $unlocked[$row['id_character'] . '-' . $row['id_ability']] = true;
+    }
+
+    // TID de talent -> id_ability (abilitieid), en 1 seule requête groupée
+    $all_talent_tids = [];
+    foreach ($talent_rows as $row) {
+        for ($i = 1; $i <= 5; $i++) {
+            $tid = trim($row["TalentTID$i"] ?? '');
+            if ($tid !== '') $all_talent_tids[$tid] = true;
+        }
+    }
+    if (empty($all_talent_tids)) return $result;
+
+    $tids = array_keys($all_talent_tids);
+    $ph3 = implode(',', array_fill(0, count($tids), '?'));
+    $stmt4 = $pdo->prepare("SELECT id, TID FROM abilitieid WHERE TID IN ($ph3)");
+    $stmt4->execute($tids);
+    $ability_id_by_tid = [];
+    foreach ($stmt4->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $ability_id_by_tid[$row['TID']] = (int)$row['id'];
+    }
+
+    // Coût de déblocage de chaque talent (1ère ligne officer_abilities pour ce TID)
+    $stmt5 = $pdo->prepare("SELECT TID, UpgradeCost, UpgradeTimeH FROM officer_abilities WHERE TID IN ($ph3) ORDER BY Niveau ASC");
+    $stmt5->execute($tids);
+    $cost_by_tid = [];
+    foreach ($stmt5->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        if (!isset($cost_by_tid[$row['TID']])) { // garde la 1ère (Niveau le plus bas)
+            $cost_by_tid[$row['TID']] = ['cost' => (float)($row['UpgradeCost'] ?? 0), 'time_h' => (float)($row['UpgradeTimeH'] ?? 0)];
+        }
+    }
+
+    foreach ($talent_rows as $row) {
+        $officer_id = $id_by_tid[$row['TID']] ?? null;
+        if (!$officer_id) continue;
+
+        for ($i = 1; $i <= 5; $i++) {
+            $talent_tid = trim($row["TalentTID$i"] ?? '');
+            if ($talent_tid === '' || !isset($ability_id_by_tid[$talent_tid])) continue;
+
+            $ability_id = $ability_id_by_tid[$talent_tid];
+            $key = $officer_id . '-' . $ability_id;
+            if (!empty($unlocked[$key])) continue; // déjà débloqué, rien à ajouter
+
+            $cost = $cost_by_tid[$talent_tid] ?? null;
+            if ($cost) {
+                $result['cost']   += $cost['cost'];
+                $result['time_h'] += $cost['time_h'];
+            }
+        }
+    }
+
+    return $result;
+}
+
+/**
+ * Armée : 1 ligne par catégorie (Troupes / Proto-troupes / Héros / Chefs de bataillon /
+ * Capacités de canonnière) + Total, colonnes Or / Jetons Proto / Manuels de terrain / Temps.
+ * - Troupes & Capacités de canonnière : Or (remaining_cost de getFilteredUnits).
+ * - Proto-troupes : Jetons Proto (remaining_cost de getFilteredUnits).
+ * - Héros : Or pour le niveau du héros lui-même + Manuels de terrain pour ses 3 capacités.
+ * - Chefs de bataillon : Manuels de terrain pour capacité active + passive + talents restants
+ *   (pas de "niveau" propre aux officiers, donc pas d'Or ici).
+ */
+function getArmyResourceSummary(PDO $pdo, $id_player, $troupes_list, $proto_list, $heros_list, $officers_list, $capacanon_list) {
+    $sum_troupes   = muSumRemainingBaseList($troupes_list);
+    $sum_proto     = muSumRemainingBaseList($proto_list);
+    $sum_heros_niv = muSumRemainingBaseList($heros_list);
+    $sum_capacanon = muSumRemainingBaseList($capacanon_list);
+
+    // Capacités de Héros : payées en Jetons de héros, pas de palier (contrairement aux
+    // officiers), donc on garde la somme complète telle quelle.
+    $heros_jetons_cost = 0;
+    $heros_jetons_time = 0.0;
+    foreach ($heros_list as $h) {
+        foreach (($h['hero_abilities'] ?? []) as $ab) {
+            $r = muSumRemainingAbilityLevels($ab['levels'] ?? [], (int)($ab['current_level'] ?? 1));
+            $heros_jetons_cost += $r['cost'];
+            $heros_jetons_time += $r['time_h'];
+        }
+    }
+
+    // Capacités d'officier : palier 1-10 = Manuels de terrain, palier 11-13 = Rapports
+    // d'activité (voir muSumRemainingAbilityLevelsSplit).
+    $officiers_manuel_cost  = 0; $officiers_manuel_time  = 0.0;
+    $officiers_rapport_cost = 0; $officiers_rapport_time = 0.0;
+    $officier_ids = [];
+    foreach ($officers_list as $o) {
+        $officier_ids[] = (int)$o['id_character'];
+        foreach (($o['abilities'] ?? []) as $ab) { // 'active' + 'passive'
+            $r = muSumRemainingAbilityLevelsSplit($ab['levels'] ?? [], (int)($ab['current_level'] ?? 1));
+            $officiers_manuel_cost  += $r['manuel']['cost'];
+            $officiers_manuel_time  += $r['manuel']['time_h'];
+            $officiers_rapport_cost += $r['rapport']['cost'];
+            $officiers_rapport_time += $r['rapport']['time_h'];
+        }
+    }
+    // Talents (déblocage unique, pas de notion de palier) : comptés avec les Manuels.
+    $talents = getOfficersTalentsRemainingCost($pdo, $id_player, $officier_ids);
+    $officiers_manuel_cost += $talents['cost'];
+    $officiers_manuel_time += $talents['time_h'];
+
+    $resume = [
+        'Troupe' => [
+            'label' => 'Troupes',
+            'gold' => $sum_troupes['cost'], 'proto' => 0, 'manuels' => 0, 'rapport' => 0, 'jetons_heros' => 0,
+            'time_h' => $sum_troupes['time_h'],
+        ],
+        'Proto' => [
+            'label' => 'Proto-troupes',
+            'gold' => 0, 'proto' => $sum_proto['cost'], 'manuels' => 0, 'rapport' => 0, 'jetons_heros' => 0,
+            'time_h' => $sum_proto['time_h'],
+        ],
+        'Hero' => [
+            'label' => 'Héros',
+            'gold' => $sum_heros_niv['cost'], 'proto' => 0, 'manuels' => 0, 'rapport' => 0, 'jetons_heros' => $heros_jetons_cost,
+            'time_h' => $sum_heros_niv['time_h'] + $heros_jetons_time,
+        ],
+        'Officier' => [
+            'label' => 'Chefs de bataillon',
+            'gold' => 0, 'proto' => 0, 'manuels' => $officiers_manuel_cost, 'rapport' => $officiers_rapport_cost, 'jetons_heros' => 0,
+            'time_h' => $officiers_manuel_time + $officiers_rapport_time,
+        ],
+        'Spell' => [
+            'label' => 'Capacités de canonnière',
+            'gold' => $sum_capacanon['cost'], 'proto' => 0, 'manuels' => 0, 'rapport' => 0, 'jetons_heros' => 0,
+            'time_h' => $sum_capacanon['time_h'],
+        ],
+    ];
+
+    $total = ['gold' => 0, 'proto' => 0, 'manuels' => 0, 'rapport' => 0, 'jetons_heros' => 0, 'time_h' => 0.0];
+    foreach ($resume as $row) {
+        $total['gold']         += $row['gold'];
+        $total['proto']        += $row['proto'];
+        $total['manuels']      += $row['manuels'];
+        $total['rapport']      += $row['rapport'];
+        $total['jetons_heros'] += $row['jetons_heros'];
+        $total['time_h']       += $row['time_h'];
+    }
+    $resume['TOTAL'] = array_merge(['label' => 'Total'], $total);
+
+    return $resume;
+}
+
+/**
+ * Tableau récapitulatif "Ressources pour tout finir au max" — Bâtiments.
+ * Pensé pour être affiché juste sous les cartes de Building-Overview.
+ */
+function renderBuildingResourceSummaryTable($resume_batiments) {
+    echo "<div class='dash-section resource-summary'>";
+    echo "<h3 class='resource-summary-title'>🏗️ Ressources pour tout finir au max</h3>";
+    echo "<div class='resource-summary-table-wrap'>";
+    echo "<table class='resource-summary-table'>
+            <thead>
+                <tr>
+                    <th>Catégorie</th>
+                    <th><img src='images/icons/Gold.png' alt='Or' title='Or'></th>
+                    <th><img src='images/icons/Wood.png' alt='Bois' title='Bois'></th>
+                    <th><img src='images/icons/Stone.png' alt='Pierre' title='Pierre'></th>
+                    <th><img src='images/icons/Iron.png' alt='Fer' title='Fer'></th>
+                    <th>Temps</th>
+                </tr>
+            </thead><tbody>";
+    foreach ($resume_batiments as $key => $row) {
+        $is_total = ($key === 'TOTAL');
+        $tr_class = $is_total ? " class='resource-summary-total'" : "";
+        echo "<tr{$tr_class}>
+                <td>{$row['label']}</td>
+                <td>" . number_format($row['gold'], 0, ',', ' ') . "</td>
+                <td>" . number_format($row['wood'], 0, ',', ' ') . "</td>
+                <td>" . number_format($row['stone'], 0, ',', ' ') . "</td>
+                <td>" . number_format($row['iron'], 0, ',', ' ') . "</td>
+                <td>" . formatSecondsToText($row['time_seconds']) . "</td>
+              </tr>";
+    }
+    echo "</tbody></table></div>";
+    echo "</div>"; // .dash-section.resource-summary
+}
+
+/**
+ * Tableau récapitulatif "Ressources pour tout finir au max" — Armée.
+ * Pensé pour être affiché juste sous les cartes de Army-Overview.
+ * Colonnes détaillées : Or / Jetons Proto / Manuels de terrain (capa officier niv. 1-10)
+ * / Rapports d'activité (capa officier niv. 11-13) / Jetons de héros (capa héros) / Temps.
+ */
+function renderArmyResourceSummaryTable($resume_armee) {
+    echo "<div class='dash-section resource-summary'>";
+    echo "<h3 class='resource-summary-title'>⚔️ Ressources pour tout finir au max</h3>";
+    echo "<div class='resource-summary-table-wrap'>";
+    echo "<table class='resource-summary-table'>
+            <thead>
+                <tr>
+                    <th>Catégorie</th>
+                    <th><img src='images/icons/Gold.png' alt='Or' title='Or'></th>
+                    <th><img src='images/icons/Proto_Token.png' alt='Jetons Proto' title='Jetons Proto'></th>
+                    <th title=\"Capacités d'officier niveau 1 à 10\">📖 Manuels de terrain</th>
+                    <th title=\"Capacités d'officier niveau 11 à 13\">📰 Rapports d'activité</th>
+                    <th title=\"Capacités de héros\">🎖️ Jetons de héros</th>
+                    <th>Temps</th>
+                </tr>
+            </thead><tbody>";
+    foreach ($resume_armee as $key => $row) {
+        $is_total = ($key === 'TOTAL');
+        $tr_class = $is_total ? " class='resource-summary-total'" : "";
+        echo "<tr{$tr_class}>
+                <td>{$row['label']}</td>
+                <td>" . number_format($row['gold'], 0, ',', ' ') . "</td>
+                <td>" . number_format($row['proto'], 0, ',', ' ') . "</td>
+                <td>" . number_format($row['manuels'], 0, ',', ' ') . "</td>
+                <td>" . number_format($row['rapport'], 0, ',', ' ') . "</td>
+                <td>" . number_format($row['jetons_heros'], 0, ',', ' ') . "</td>
+                <td>" . formatUnitsTime($row['time_h']) . "</td>
+              </tr>";
+    }
+    echo "</tbody></table></div>";
+    echo "</div>"; // .dash-section.resource-summary
 }
 
 function renderStatsSidebar($title, $buildings_data, $stats) {

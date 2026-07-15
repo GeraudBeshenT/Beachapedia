@@ -8,7 +8,7 @@ if (session_status() === PHP_SESSION_NONE) {
 
 // Récupère la langue depuis la SESSION (prioritaire), sinon cookie, sinon FR
 $selected_lang = $_SESSION['lang'] ?? $_COOKIE['lang'] ?? 'FR';
-$allowed_langs = ['FR', 'EN', 'DE', 'ES', 'IT', 'PT', 'NL', 'PL', 'RU', 'TR', 'AR', 'ZH', 'JA', 'KO'];
+$allowed_langs = ['EN', 'DE', 'ES', 'FR', 'IT', 'JP', 'PT', 'ZH_HANS', 'NL', 'NO', 'TR', 'KR', 'RU', 'ZH_HANT', 'AR', 'ID', 'MS', 'VI', 'TH', 'FI'];
 $selected_lang = in_array($selected_lang, $allowed_langs) ? $selected_lang : 'FR';
 
 // 3. Le reste de ton code existant...
@@ -51,15 +51,28 @@ $qg_image_name = ($qg_info) ? $qg_info['ExportName'] : 'townhall_lvl1';
  * fusionnée avec sa progression réelle (progress_building : niveau + Debloque).
  * Une instance sans ligne en base = bâtiment non construit (niveau 0, Debloque 0).
  */
+// TID des Pièges qui ne se construisent plus individuellement (à l'or, par instance),
+// mais qui se recherchent une seule fois à l'Arsenal et s'appliquent à TOUTES les mines
+// posées sur la base (comme une amélioration de Troupe). Une seule carte doit donc être
+// affichée pour chacun de ces TID, quel que soit le nombre d'instances en base.
+const MINE_TIDS = ['TID_TRAP_MINE', 'TID_TRAP_TANK_MINE', 'TID_TRAP_SHOCK_MINE'];
+
 function getBuildingsDisplay($pdo, $id_player, $qg, $arsenal_level_reel = 0) {
     global $selected_lang;
 
-    // progress_building est maintenant la source de vérité complète : une ligne y est
-    // créée pour chaque emplacement de bâtiment débloqué (Debloque = 0 tant qu'il n'est
-    // pas encore construit, Debloque = 1 une fois construit). Plus besoin de la vue
-    // v_all_unlocks pour savoir ce qui est disponible à ce QG : on lit directement ici.
+    // Définir le mappage entre la langue session et le nom de la colonne SQL
+    $lang_map = [
+        'ZH-HANS' => 'ZH_HANS',
+        'ZH-HANT' => 'ZH_HANT',
+        // ... ajoutez les autres si nécessaire, ex: 'EN' => 'EN'
+    ];
+
+    // Si la langue a un mappage, on l'utilise, sinon on prend le code tel quel
+    $colonne_lang = $lang_map[$selected_lang] ?? $selected_lang;
+
+    // Puis utilisez $colonne_lang dans votre requête :
     $stmt_prog = $pdo->prepare("
-        SELECT pb.id_instance, pb.niveau, pb.Debloque, bi.TID, bi.Class, bi.Ordre, t.$selected_lang AS nom
+        SELECT pb.id_instance, pb.niveau, pb.Debloque, bi.TID, bi.Class, bi.Ordre, t.$colonne_lang AS nom
         FROM progress_building pb
         JOIN buildingid bi ON bi.ID = pb.id_building
         JOIN texts t ON bi.TID = t.TID
@@ -68,6 +81,28 @@ function getBuildingsDisplay($pdo, $id_player, $qg, $arsenal_level_reel = 0) {
     ");
     $stmt_prog->execute([$id_player]);
     $rows = $stmt_prog->fetchAll(PDO::FETCH_ASSOC);
+
+    // Pour les mines (voir MINE_TIDS ci-dessus) : plusieurs instances existent peut-être
+    // encore en base (une par mine posée), mais on ne veut garder qu'UNE seule ligne par
+    // TID — celle avec le niveau le plus élevé (au cas où les instances seraient
+    // désynchronisées) — et on retient l'id_instance le plus bas comme "instance
+    // canonique" à utiliser pour l'amélioration (voir note upgrade_building.php plus bas).
+    $mine_canonical = []; // TID => ['niveau' => int, 'Debloque' => int, 'id_instance' => int]
+    foreach ($rows as $r) {
+        if (!in_array($r['TID'], MINE_TIDS, true)) continue;
+        $tid = $r['TID'];
+        if (!isset($mine_canonical[$tid]) || (int)$r['niveau'] > $mine_canonical[$tid]['niveau']) {
+            $mine_canonical[$tid] = [
+                'niveau'      => (int)$r['niveau'],
+                'Debloque'    => (int)$r['Debloque'],
+                'id_instance' => (int)$r['id_instance'],
+            ];
+        } else {
+            $mine_canonical[$tid]['id_instance'] = min($mine_canonical[$tid]['id_instance'], (int)$r['id_instance']);
+        }
+        if ((int)$r['Debloque'] === 1) $mine_canonical[$tid]['Debloque'] = 1;
+    }
+    $mine_seen = []; // TID déjà traités, pour ne garder qu'une occurrence dans la boucle principale
 
     // Niveau max atteignable par TID (dépend toujours du QG via buildings.TownHallLevel,
     // indépendamment de la vue) — mis en cache pour ne pas refaire la requête à chaque instance.
@@ -84,6 +119,17 @@ function getBuildingsDisplay($pdo, $id_player, $qg, $arsenal_level_reel = 0) {
         if (!isset($buildings_display[$category])) continue;
 
         $tid = $b['TID'];
+        $is_mine = in_array($tid, MINE_TIDS, true);
+
+        // Mines : une seule carte par TID (voir $mine_canonical plus haut). On saute
+        // toutes les occurrences après la première, et on utilise le niveau agrégé.
+        if ($is_mine) {
+            if (isset($mine_seen[$tid])) continue;
+            $mine_seen[$tid] = true;
+            $b['niveau']      = $mine_canonical[$tid]['niveau'];
+            $b['Debloque']    = $mine_canonical[$tid]['Debloque'];
+            $b['id_instance'] = $mine_canonical[$tid]['id_instance'];
+        }
 
         // Les Pièges (Class 'Trap') sont des bâtiments comme les autres, MAIS leur palier
         // (colonne buildings.TownHallLevel) représente en réalité le niveau d'ARSENAL requis,
@@ -123,10 +169,16 @@ function getBuildingsDisplay($pdo, $id_player, $qg, $arsenal_level_reel = 0) {
         $remaining_stone = 0;
         $remaining_iron = 0;
         $remaining_time_seconds = 0;
+        // Pour les mines, le "vrai" plafond affiché est le max ABSOLU (indépendant de
+        // l'arsenal actuel) : on veut voir qu'il reste des niveaux à débloquer même si
+        // l'Arsenal n'est pas encore assez haut, avec un message dédié (voir plus bas),
+        // exactement comme pour les Troupes.
+        if ($is_mine) $niveau_max = $niveau_max_absolu;
+
         if ($niveau_actuel < $niveau_max) {
             $stmt_next = $pdo->prepare("
                 SELECT BuildCostGold, BuildCostWood, BuildCostStone, BuildCostIron,
-                       BuildTimeD, BuildTimeH, BuildTimeM, BuildTimeS, XpGain
+                       BuildTimeD, BuildTimeH, BuildTimeM, BuildTimeS, XpGain, TownHallLevel
                 FROM buildings WHERE TID = ? AND Niveau = ? LIMIT 1
             ");
             $stmt_next->execute([$tid, $niveau_actuel + 1]);
@@ -148,6 +200,12 @@ function getBuildingsDisplay($pdo, $id_player, $qg, $arsenal_level_reel = 0) {
             $remaining_time_seconds = (int)($row_remaining['time_seconds'] ?? 0);
         }
 
+        // Arsenal requis pour le PROCHAIN niveau (uniquement pertinent pour les mines,
+        // qui ne se gatent plus via le calcul de niveau_max mais via un vrai message,
+        // comme les Troupes / Proto-troupes avec UpgradeHouseLevel).
+        $required_arsenal = $is_mine && $next ? (int)($next['TownHallLevel'] ?? 0) : 0;
+        $arsenal_ok       = !$is_mine || ($required_arsenal <= $arsenal_level_reel);
+
         $buildings_display[$category][] = [
             'TID'           => $tid,
             'Class'         => $category,
@@ -158,6 +216,9 @@ function getBuildingsDisplay($pdo, $id_player, $qg, $arsenal_level_reel = 0) {
             'niveau_max'    => $niveau_max,
             'niveau_max_absolu' => $niveau_max_absolu,
             'Debloque'      => $debloque,
+            'is_mine'          => $is_mine,
+            'required_arsenal' => $required_arsenal,
+            'arsenal_ok'       => $arsenal_ok,
             // Pièges : uniquement l'Or compte. Autres catégories : bois/pierre/fer.
             'BuildCostGold'  => $is_trap ? ($next['BuildCostGold']  ?? null) : null,
             'BuildCostWood'  => $is_trap ? null : ($next['BuildCostWood']  ?? null),
@@ -235,9 +296,20 @@ function getFilteredUnits($pdo, $qg, $arsenal_max, $typeFilterSQL, $player_progr
                ot.TalentTID1, ot.TalentTID2, ot.TalentTID3, ot.TalentTID4, ot.TalentTID5,
                pc.niveau, pc.Debloque
         FROM characters c
-        INNER JOIN texts t ON c.TID = t.TID
+        INNER JOIN (
+            SELECT TID, MAX($selected_lang) AS $selected_lang
+            FROM texts
+            GROUP BY TID
+        ) t ON c.TID = t.TID
         INNER JOIN characterid ci ON c.TID = ci.TID
-        LEFT JOIN officer_talents ot ON ci.TID = ot.TID
+        LEFT JOIN (
+            SELECT TID,
+                   MAX(TalentTID1) AS TalentTID1, MAX(TalentTID2) AS TalentTID2,
+                   MAX(TalentTID3) AS TalentTID3, MAX(TalentTID4) AS TalentTID4,
+                   MAX(TalentTID5) AS TalentTID5
+            FROM officer_talents
+            GROUP BY TID
+        ) ot ON ci.TID = ot.TID
         LEFT JOIN characterid base_troop ON base_troop.TID = ci.Officer
         LEFT JOIN (
             SELECT id_character, MAX(niveau) AS niveau, MAX(Debloque) AS Debloque
@@ -248,7 +320,7 @@ function getFilteredUnits($pdo, $qg, $arsenal_max, $typeFilterSQL, $player_progr
         WHERE $typeFilterSQL 
         AND c.Niveau = 1
         AND ci.HQUnlock <= :qg
-        ORDER BY COALESCE(base_troop.HQUnlock, ci.HQUnlock) ASC, COALESCE(base_troop.TID, c.TID) ASC"; 
+        ORDER BY ci.Type ASC, ci.Display ASC"; 
 
     $stmt = $pdo->prepare($sql);
     // On passe un tableau avec les deux paramètres nommés

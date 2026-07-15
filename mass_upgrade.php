@@ -23,8 +23,8 @@ $mu_initial_data = muBuildData($pdo, $id_player, $mu_default_qg);
             <div>
                 <h2>🚀 Mass Upgrade</h2>
                 <p class="mu-subtitle">
-                    Renseignez en une fois le niveau de vos bâtiments, troupes, héros, chefs de bataillon
-                    et leurs capacités pour votre QG actuel. Idéal pour importer d'un coup un compte déjà avancé
+                    Renseignez en une fois le niveau de vos bâtiments, troupes, héros, chefs de bataillon,
+                    leurs capacités et vos gravures pour votre QG actuel. Idéal pour importer d'un coup un compte déjà avancé
                     sans devoir cliquer sur « Améliorer » des milliers de fois.
                 </p>
             </div>
@@ -204,8 +204,8 @@ $mu_initial_data = muBuildData($pdo, $id_player, $mu_default_qg);
 }
 
 .mu-item-icon {
-    width: 32px;
-    height: 32px;
+    width: 75px;
+    height: 75px;
     object-fit: contain;
     margin-right: 10px;
     vertical-align: middle;
@@ -392,18 +392,26 @@ function muSaveAll() {
         });
     });
 
+    const engravings = [];
+    document.querySelectorAll('.mu-input.mu-engraving').forEach(input => {
+        engravings.push({
+            id_engraving: parseInt(input.dataset.engraving, 10),
+            niveau: parseInt(input.value || '0', 10)
+        });
+    });
+
     muSetStatus('Enregistrement en cours…', true);
 
     fetch('mass_upgrade_save.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ qg: parseInt(qg, 10), buildings, characters, abilities })
+        body: JSON.stringify({ qg: parseInt(qg, 10), buildings, characters, abilities, engravings })
     })
     .then(r => r.json())
     .then(data => {
         if (data.success) {
             muSetStatus(
-                `✅ Enregistré : ${data.nb_buildings} bâtiments, ${data.nb_characters} personnages, ${data.nb_abilities} capacités.`,
+                `✅ Enregistré : ${data.nb_buildings} bâtiments, ${data.nb_characters} personnages, ${data.nb_abilities} capacités, ${data.nb_engravings} gravures.`,
                 true
             );
         } else {
