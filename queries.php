@@ -256,6 +256,21 @@ $arsenal_level_reel = min($arsenal_level_reel, $arsenal_current_max);
 
 $buildings_display = getBuildingsDisplay($pdo, $id_player, $qg, $arsenal_level_reel);
 
+// Nombre total de TYPES de bâtiments (TID distincts) existant dans chaque
+// catégorie, tous QG confondus (indépendant du joueur) — utilisé pour le
+// "X / Y bâtiments" du Tableau de Bord (X = types débloqués au QG actuel).
+$buildings_types_total = ['Ressource' => 0, 'Defense' => 0, 'Army' => 0, 'Trap' => 0];
+$stmt_types_total = $pdo->query("
+    SELECT bi.Class, COUNT(DISTINCT bi.TID) AS total
+    FROM buildingid bi
+    JOIN buildings b ON b.TID = bi.TID
+    WHERE bi.Class IN ('Ressource', 'Defense', 'Army', 'Trap')
+    GROUP BY bi.Class
+");
+foreach ($stmt_types_total->fetchAll(PDO::FETCH_ASSOC) as $row) {
+    $buildings_types_total[$row['Class']] = (int)$row['total'];
+}
+
 // --- Agrégation pour les jauges du Tableau de Bord (renderDashboard) ---
 $dashboard_buildings = [
     'Ressource' => ['label' => 'Bâtiments Économiques', 'actuel' => 0, 'max' => 0, 'pourcentage' => 0],
@@ -296,11 +311,7 @@ function getFilteredUnits($pdo, $qg, $arsenal_max, $typeFilterSQL, $player_progr
                ot.TalentTID1, ot.TalentTID2, ot.TalentTID3, ot.TalentTID4, ot.TalentTID5,
                pc.niveau, pc.Debloque
         FROM characters c
-        INNER JOIN (
-            SELECT TID, MAX($selected_lang) AS $selected_lang
-            FROM texts
-            GROUP BY TID
-        ) t ON c.TID = t.TID
+        INNER JOIN texts t ON c.TID = t.TID
         INNER JOIN characterid ci ON c.TID = ci.TID
         LEFT JOIN (
             SELECT TID,
@@ -391,8 +402,9 @@ function getFilteredUnits($pdo, $qg, $arsenal_max, $typeFilterSQL, $player_progr
                 foreach (['active' => $ab_row['ActiveAbility'], 'passive' => $ab_row['PassiveAbility']] as $type => $ab_tid) {
                     if (!$ab_tid) continue;
                     
-                    $stmt_info = $pdo->prepare("SELECT ai.id, ai.IconExportName, t.$selected_lang FROM abilitieid ai 
-                                                LEFT JOIN texts t ON ai.TID = t.TID WHERE ai.TID = ?");
+                    $stmt_info = $pdo->prepare("SELECT ai.id, ai.IconExportName, t.$selected_lang AS nom
+                            FROM abilitieid ai
+                            LEFT JOIN texts t ON ai.TID = t.TID WHERE ai.TID = ?");
                     $stmt_info->execute([$ab_tid]);
                     $info = $stmt_info->fetch(PDO::FETCH_ASSOC);
                     
@@ -418,7 +430,7 @@ function getFilteredUnits($pdo, $qg, $arsenal_max, $typeFilterSQL, $player_progr
                         'id_ability' => $info['id'] ?? 0, 
                         'TID' => $ab_tid,
                         'IconExportName' => $info['IconExportName'] ?? 'default',
-                        'nom' => $info['FR'] ?? $ab_tid,
+                        'nom' => $info['nom'] ?? $ab_tid,
                         'current_level' => $real_level,
                         'display_level' => $display_level,
                         'levels' => $ab_levels

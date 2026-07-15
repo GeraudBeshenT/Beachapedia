@@ -286,6 +286,19 @@ $bb_languages = [
             $stats_army = getCategoryStats($buildings_display['Army'] ?? []);
             $stats_trap = getCategoryStats($buildings_display['Trap'] ?? []);
 
+            // Types de bâtiments (TID distincts) débloqués au QG actuel / total existant
+            // dans la catégorie (tous QG confondus) — pour le "X / Y bâtiments" du dashboard.
+            foreach ([
+                'Ressource' => &$stats_res,
+                'Defense'   => &$stats_def,
+                'Army'      => &$stats_army,
+                'Trap'      => &$stats_trap,
+            ] as $cat => &$stats_ref) {
+                $stats_ref['types_debloques'] = count(array_unique(array_column($buildings_display[$cat] ?? [], 'TID')));
+                $stats_ref['types_total']     = $buildings_types_total[$cat] ?? 0;
+            }
+            unset($stats_ref);
+
             // --- Stats globales pour le Tableau de Bord principal ---
             $all_buildings_flat = array_merge(
                 $buildings_display['Ressource'] ?? [],
@@ -508,7 +521,7 @@ $bb_languages = [
         <h2>Chef de bataillon</h2>
             <div class="dashboard-wrapper">
                 <div style="flex: 3;">
-                    <?php renderUnitsTable($officers_list, $progress, $house_levels, $pdo, $_SESSION['player_id']); ?>
+                    <?php renderUnitsTable($officers_list, $character_progress, $house_levels, $pdo, $_SESSION['player_id']); ?>
                 </div>
                 
                 <div style="flex: 1;">

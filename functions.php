@@ -1762,15 +1762,16 @@ function renderMainDashboard(
     echo "<div class='dashboard-container'><h2>Tableau de Bord</h2>";
 
     // ================= SECTION BÂTIMENTS =================
-    // "Construire X bâtiments pour le QG Y" : X = restant_a_construire (niveau_actuel = 0
-    // parmi les bâtiments DÉJÀ débloqués à ce QG), Y = QG actuel du joueur.
+    // "X / Y bâtiments débloqués" : X = types de bâtiments (TID distincts) débloqués
+    // au QG actuel du joueur, Y = nombre total de types existant dans la catégorie
+    // (tous QG confondus, jusqu'à la fin du jeu).
     echo "<div class='dash-section'>";
     renderDashSectionHeader('🏗️', 'Bâtiments', $stats_buildings['percent'], 'Building-Overview');
     echo "<div class='dash-subcards-row'>";
-    echo renderDashSubcard('🏦', 'Économie', $stats_res['current'], $stats_res['max'], $stats_res['percent'], "Construire {$stats_res['restant_a_construire']} bâtiments pour le QG {$qg}", 'Building-Ressource', false, false, $stats_res['percent_absolu']);
-    echo renderDashSubcard('🛡️', 'Défense', $stats_def['current'], $stats_def['max'], $stats_def['percent'], "Construire {$stats_def['restant_a_construire']} bâtiments pour le QG {$qg}", 'Building-Defense', false, false, $stats_def['percent_absolu']);
-    echo renderDashSubcard('🏰', 'Renfort', $stats_army['current'], $stats_army['max'], $stats_army['percent'], "Construire {$stats_army['restant_a_construire']} bâtiments pour le QG {$qg}", 'Building-Army', false, false, $stats_army['percent_absolu']);
-    echo renderDashSubcard('💣', 'Pièges', $stats_trap['current'], $stats_trap['max'], $stats_trap['percent'], "Construire {$stats_trap['restant_a_construire']} bâtiments pour le QG {$qg}", 'Building-Trap', false, false, $stats_trap['percent_absolu']);
+    echo renderDashSubcard('🏦', 'Économie', $stats_res['current'], $stats_res['max'], $stats_res['percent'], "{$stats_res['types_debloques']} / {$stats_res['types_total']} bâtiments débloqués", 'Building-Ressource', false, false, $stats_res['percent_absolu']);
+    echo renderDashSubcard('🛡️', 'Défense', $stats_def['current'], $stats_def['max'], $stats_def['percent'], "{$stats_def['types_debloques']} / {$stats_def['types_total']} bâtiments débloqués", 'Building-Defense', false, false, $stats_def['percent_absolu']);
+    echo renderDashSubcard('🏰', 'Renfort', $stats_army['current'], $stats_army['max'], $stats_army['percent'], "{$stats_army['types_debloques']} / {$stats_army['types_total']} bâtiments débloqués", 'Building-Army', false, false, $stats_army['percent_absolu']);
+    echo renderDashSubcard('💣', 'Pièges', $stats_trap['current'], $stats_trap['max'], $stats_trap['percent'], "{$stats_trap['types_debloques']} / {$stats_trap['types_total']} bâtiments débloqués", 'Building-Trap', false, false, $stats_trap['percent_absolu']);
     echo "</div></div>";
 
     // ================= SECTION ARMÉE =================
