@@ -414,6 +414,9 @@ function muSaveAll() {
                 `✅ Enregistré : ${data.nb_buildings} bâtiments, ${data.nb_characters} personnages, ${data.nb_abilities} capacités, ${data.nb_engravings} gravures.`,
                 true
             );
+            // Petit délai pour laisser le message de confirmation s'afficher avant le
+            // rechargement complet de la page (sinon il n'a pas le temps d'être vu).
+            setTimeout(() => window.location.reload(), 800);
         } else {
             muSetStatus('❌ ' + (data.message || 'Erreur inconnue.'), false);
         }

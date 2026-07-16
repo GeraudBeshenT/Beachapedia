@@ -116,7 +116,14 @@ try {
         exit;
     }
 
-    $is_hero_ability = ((int)$info['hero'] === $id_character);
+    // 🔥 CORRECTIF : abilitieid.hero contient le TID (chaîne, ex. 'TID_HEROJETPACK') du héros
+    // propriétaire, PAS characterid.id — même convention que dans queries.php
+    // ("ai.hero = ?" comparé à $u['TID']). L'ancienne comparaison (int)$info['hero'] ===
+    // $id_character valait donc toujours faux (cast d'une chaîne TID_* en entier = 0), ce qui
+    // faisait tomber TOUTE amélioration de capacité de héros dans la branche "officier" ci-
+    // dessous, où elle échouait systématiquement avec "Cette capacité n'appartient pas à ce
+    // personnage". c.TID (alias troupe_nom) est justement le TID du personnage ciblé.
+    $is_hero_ability = (!empty($info['hero']) && $info['hero'] === $info['troupe_nom']);
 
     if (!$is_hero_ability) {
         // Capacité d'officier : on vérifie qu'elle fait bien partie de ActiveAbility/PassiveAbility
@@ -146,25 +153,39 @@ try {
     $character_niveau = (int)($stmt_char_lvl->fetchColumn() ?: 1);
 
     // 3. Niveau actuel de la capacité
-    $stmt = $pdo->prepare("SELECT niveau FROM progress_ability WHERE id_player = ? AND id_character = ? AND id_ability = ?");
+    $stmt = $pdo->prepare("SELECT niveau, Debloque FROM progress_ability WHERE id_player = ? AND id_character = ? AND id_ability = ?");
     $stmt->execute([$id_player, $id_character, $id_ability]);
     $prog = $stmt->fetch(PDO::FETCH_ASSOC);
     $current_ability_niveau = $prog ? (int)$prog['niveau'] : 1;
 
+    // Capacité de héros #2/#3 pas encore débloquée (Debloque = 0, ou aucune ligne du tout) :
+    // Debloque reste la source de vérité, mise à jour dans upgrade_character.php quand le
+    // héros atteint le niveau requis — on ne se base pas ici sur une simple comparaison de
+    // niveau recalculée à la volée (garde-fou serveur, en plus du bouton désactivé côté vue).
+    if ($is_hero_ability && (!$prog || (int)$prog['Debloque'] === 0)) {
+        echo json_encode([
+            'success' => false,
+            'message' => 'Cette capacité est encore verrouillée'
+        ]);
+        exit;
+    }
+
     // 4. Palier suivant dans officer_abilities (même table pour héros et officiers)
+    // La ligne Niveau = N décrit les conditions pour ATTEINDRE le niveau N (comme pour le
+    // déblocage initial via HeroLevel du 1er palier). Pour passer de current_ability_niveau
+    // à new_level, il faut donc lire la ligne Niveau = new_level, pas Niveau = current_ability_niveau.
+    $new_level = $current_ability_niveau + 1;
+
     $stmt_next = $pdo->prepare("
         SELECT Niveau, HeroLevel, UpgradeCost, UpgradeResource, UpgradeTimeH
         FROM officer_abilities
         WHERE TID = ? AND Niveau = ?
         LIMIT 1
     ");
-    $stmt_next->execute([$ability_tid, $current_ability_niveau]);
+    $stmt_next->execute([$ability_tid, $new_level]);
     $next = $stmt_next->fetch(PDO::FETCH_ASSOC);
 
     if (!$next || (float)($next['UpgradeCost'] ?? 0) <= 0) {
-        // Pas de palier suivant défini, OU palier "terminateur" à coût 0 (convention DB : une
-        // ligne UpgradeCost = 0 signale qu'il n'y a plus rien à acheter à partir de ce niveau,
-        // même si la ligne existe) = capacité déjà au niveau max.
         echo json_encode([
             'success' => false,
             'message' => 'Capacité déjà au niveau maximum',
@@ -182,11 +203,9 @@ try {
         exit;
     }
 
-    // (Optionnel : c'est ici qu'il faudrait vérifier/débiter UpgradeCost en UpgradeResource
-    // sur les ressources du joueur, si une table de ressources existe côté joueurs.)
+    // (Optionnel : c'est ici qu'il faudrait vérifier/débiter UpgradeCost en UpgradeResource...)
 
     // 5. Mise à jour de la progression
-    $new_level = $current_ability_niveau + 1;
     if (!$prog) {
         $pdo->prepare("INSERT INTO progress_ability (id_player, id_character, id_ability, niveau) VALUES (?,?,?,?)")
             ->execute([$id_player, $id_character, $id_ability, $new_level]);
@@ -195,9 +214,9 @@ try {
             ->execute([$new_level, $id_player, $id_character, $id_ability]);
     }
 
-    // Y a-t-il encore un VRAI palier après celui-ci (coût > 0, pas juste une ligne terminateur) ?
+    // Y a-t-il encore un VRAI palier après celui qu'on vient d'atteindre ?
     $stmt_check_max = $pdo->prepare("SELECT UpgradeCost FROM officer_abilities WHERE TID = ? AND Niveau = ? LIMIT 1");
-    $stmt_check_max->execute([$ability_tid, $new_level]);
+    $stmt_check_max->execute([$ability_tid, $new_level + 1]);
     $next_row = $stmt_check_max->fetch(PDO::FETCH_ASSOC);
     $is_max = (!$next_row) || ((float)($next_row['UpgradeCost'] ?? 0) <= 0);
 

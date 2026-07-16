@@ -130,11 +130,12 @@ try {
         $pdo->beginTransaction();
 
         // 1. Récupération ID troupe
-        $stmt_id = $pdo->prepare("SELECT id FROM characterid WHERE TID = ? LIMIT 1");
+        $stmt_id = $pdo->prepare("SELECT id, Class FROM characterid WHERE TID = ? LIMIT 1");
         $stmt_id->execute([$tid]);
         $char_row = $stmt_id->fetch(PDO::FETCH_ASSOC);
         if (!$char_row) throw new Exception("Troupe introuvable.");
         $id_character = (int)$char_row['id'];
+        $is_hero = (trim($char_row['Class'] ?? '') === 'Hero');
 
         // 2. Mise à jour ou Insertion dans progress_character
         $stmt_check = $pdo->prepare("SELECT 1 FROM progress_character WHERE id_player = ? AND id_character = ? LIMIT 1");
@@ -174,6 +175,45 @@ try {
                 // cohérent dès qu'il sera débloqué.
                 $stmt_insert_ofc = $pdo->prepare("INSERT INTO progress_character (id_player, id_character, niveau, Debloque) VALUES (?, ?, ?, 0)");
                 $stmt_insert_ofc->execute([$id_player, $officer_id, $target_level]);
+            }
+        }
+
+        // 2ter. Héros : déblocage (Debloque 0 -> 1) des capacités #2/#3 dès que le héros
+        // atteint le niveau requis. Le niveau requis pour chaque capacité est celui du
+        // premier palier défini dans officer_abilities (le plus petit Niveau, qui décrit le
+        // coût/HeroLevel pour l'acquérir une première fois). On ne touche jamais Debloque=1
+        // -> 0. `niveau` est déjà à 1 depuis l'insertion faite dans update_qg.php (même
+        // convention que les talents d'officier) : Debloque=1 rend juste le bouton
+        // "Améliorer" disponible, l'achat du palier suivant reste un choix du joueur via
+        // upgrade_ability.php (mêmes ressources/coût que les paliers suivants).
+        if ($is_hero) {
+            $stmt_hero_ab = $pdo->prepare("SELECT id, TID FROM abilitieid WHERE hero = ?");
+            $stmt_hero_ab->execute([$tid]);
+            $hero_abilities = $stmt_hero_ab->fetchAll(PDO::FETCH_ASSOC);
+
+            if ($hero_abilities) {
+                $stmt_required_lvl = $pdo->prepare("SELECT HeroLevel FROM officer_abilities WHERE TID = ? ORDER BY Niveau ASC LIMIT 1");
+                $stmt_check_ab     = $pdo->prepare("SELECT Debloque FROM progress_ability WHERE id_player = ? AND id_character = ? AND id_ability = ?");
+                $stmt_unlock_ab    = $pdo->prepare("
+                    INSERT INTO progress_ability (id_player, id_character, id_ability, niveau, Debloque)
+                    VALUES (?, ?, ?, 1, 1)
+                    ON DUPLICATE KEY UPDATE Debloque = 1
+                ");
+
+                foreach ($hero_abilities as $hab) {
+                    $id_ability = (int)$hab['id'];
+
+                    $stmt_check_ab->execute([$id_player, $id_character, $id_ability]);
+                    $current_debloque = $stmt_check_ab->fetchColumn();
+                    if ((int)($current_debloque !== false ? $current_debloque : 0) === 1) continue; // déjà débloquée
+
+                    $stmt_required_lvl->execute([$hab['TID']]);
+                    $required_lvl = (int)($stmt_required_lvl->fetchColumn() ?: 0);
+
+                    if ($required_lvl > 0 && $target_level >= $required_lvl) {
+                        $stmt_unlock_ab->execute([$id_player, $id_character, $id_ability]);
+                    }
+                }
             }
         }
 

@@ -1,6 +1,19 @@
 <?php
 
 /**
+ * Formate un nombre de coût (Or, Bois, Cristaux, etc.) avec séparateur de milliers,
+ * selon la langue actuellement sélectionnée ($selected_lang, définie dans queries.php) :
+ *   - FR : espace comme séparateur de milliers -> 1 250 000
+ *   - toute autre langue (EN, DE, ...) : point comme séparateur de milliers -> 1.250.000
+ * Aucune décimale affichée (les coûts du jeu sont toujours des entiers).
+ */
+function formatCost($n) {
+    global $selected_lang;
+    $sep = (($selected_lang ?? 'FR') === 'FR') ? ' ' : '.';
+    return number_format((float)$n, 0, ',', $sep);
+}
+
+/**
  * Rendu du Tableau de Bord (Dashboard) avec les 4 graphiques en anneau complet (360°)
  */
 function renderDashboard($dashboard_categories, $dashboard_buildings) {
@@ -113,16 +126,22 @@ function renderBuildingsTable($buildings_list) {
             // L'instance reste purement interne (data-instance), jamais affichée à l'écran
             $safe_id = "bld-" . preg_replace('/[^a-zA-Z0-9]/', '', $tid) . "-{$inst}";
 
-            // Libellé du bouton : Construire si jamais débloqué, sinon Améliorer
-            if ($is_maxed) {
-                $btn_text = "Max !";
+            $qg_requis_next_bat = (int)($b['qg_requis_next'] ?? 0);
+
+            // Texte rouge affiché HORS bouton dès que c'est verrouillé/plafonné/max — même
+            // logique que pour les troupes/héros. null = pas verrouillé, on garde un vrai bouton.
+            if ($is_maxed && $qg_requis_next_bat > 0) {
+                $locked_text = "QG Niv. {$qg_requis_next_bat} requis";
+            } elseif ($is_maxed) {
+                $locked_text = "Niveau max !";
             } elseif ($is_mine && !$arsenal_ok) {
-                $btn_text = "Verrouillé";
-            } elseif ($debloque === 0) {
-                $btn_text = "Construire";
+                $locked_text = "Arsenal Niv. {$required_arsenal} requis";
             } else {
-                $btn_text = "Améliorer";
+                $locked_text = null;
             }
+
+            // Libellé du bouton (seulement utilisé quand $locked_text est null)
+            $btn_text = ($debloque === 0) ? "Construire" : "Améliorer";
 
             $display_text = ($niv === 0) ? "Non construit" : "Niveau {$niv}";
 
@@ -150,7 +169,7 @@ function renderBuildingsTable($buildings_list) {
                     $cout_or = $b['BuildCostGold'] ?? 0;
                     echo "
                 <div class='building-card-costs'>
-                    <span class='building-cost-item'><img class='building-cost-icon' src='images/icons/Gold.png' alt='Or'>{$cout_or}</span>
+                    <span class='building-cost-item'><img class='building-cost-icon' src='images/icons/Gold.png' alt='Or'>" . formatCost($cout_or) . "</span>
                 </div>
                 <div class='building-card-time'>
                     <img class='building-time-icon' src='images/icons/Time Icon.png' alt='Temps'>{$temps_txt}
@@ -169,9 +188,9 @@ function renderBuildingsTable($buildings_list) {
 
                     echo "
                 <div class='building-card-costs'>
-                    <span class='building-cost-item'><img class='building-cost-icon' src='images/icons/Wood.png' alt='Bois'>{$cout_bois}</span>
-                    <span class='building-cost-item'><img class='building-cost-icon' src='images/icons/Stone.png' alt='Pierre'>{$cout_pierre}</span>
-                    <span class='building-cost-item'><img class='building-cost-icon' src='images/icons/Iron.png' alt='Fer'>{$cout_fer}</span>
+                    <span class='building-cost-item'><img class='building-cost-icon' src='images/icons/Wood.png' alt='Bois'>" . formatCost($cout_bois) . "</span>
+                    <span class='building-cost-item'><img class='building-cost-icon' src='images/icons/Stone.png' alt='Pierre'>" . formatCost($cout_pierre) . "</span>
+                    <span class='building-cost-item'><img class='building-cost-icon' src='images/icons/Iron.png' alt='Fer'>" . formatCost($cout_fer) . "</span>
                 </div>
                 <div class='building-card-time'>
                     <img class='building-time-icon' src='images/icons/Time Icon.png' alt='Temps'>{$temps_txt}
@@ -179,15 +198,22 @@ function renderBuildingsTable($buildings_list) {
                 }
             }
 
-            $disabled = ($is_maxed || ($is_mine && !$arsenal_ok)) ? "disabled" : "";
-            echo "
+            if ($locked_text !== null) {
+                echo "
                 <div class='building-card-action'>
-                    <button class='btn-upgrade' {$disabled}
+                    <span class='officer-ability-locked' style='color:#e74c3c;font-weight:bold;'>{$locked_text}</span>
+                </div>
+            </div>";
+            } else {
+                echo "
+                <div class='building-card-action'>
+                    <button class='btn-upgrade'
                             onclick=\"triggerUpgradeBuilding('{$tid}', {$inst}, {$niv}, {$max}, '{$safe_id}')\">
                         <span class='btn-text'>{$btn_text}</span>
                     </button>
                 </div>
             </div>";
+            }
         }
 
         echo "</div>";
@@ -870,7 +896,7 @@ function renderUnitsTable($data, $progress = [], $house_levels = [], $pdo = null
 
                 echo "
                 <div class='troop-card-costs'>
-                    <span class='troop-cost-item'><img class='troop-cost-icon' src='{$cost_icon}' alt='{$cost_label}'>{$cout}</span>
+                    <span class='troop-cost-item'><img class='troop-cost-icon' src='{$cost_icon}' alt='{$cost_label}'>" . formatCost($cout) . "</span>
                 </div>
                 <div class='troop-card-time'>
                     <img class='troop-time-icon' src='images/icons/Time Icon.png' alt='Temps'>{$temps_txt}
@@ -884,22 +910,43 @@ function renderUnitsTable($data, $progress = [], $house_levels = [], $pdo = null
                 }
             }
 
-            $disabled = ($is_maxed || !$house_ok) ? "disabled" : "";
-            if ($is_maxed) {
-                $btn_text = "Max !";
-            } elseif (!$house_ok) {
-                $btn_text = "Verrouillé";
-            } else {
-                $btn_text = "Améliorer";
-            }
+            // Distinction "vraiment au max" vs "plafonné par l'Arsenal/l'Atelier actuel" —
+            // même principe que pour les héros (voir plus haut / queries.php : niveau_max_absolu
+            // et house_requis_next sont calculés pour toutes les classes, pas seulement Hero).
+            $niveau_max_absolu_trp = (int)($u['niveau_max_absolu'] ?? $max);
+            $house_requis_next_trp = (int)($u['house_requis_next'] ?? 0);
+            $is_house_capped_trp   = $is_maxed && ($max < $niveau_max_absolu_trp) && $house_requis_next_trp > 0;
 
-            echo "
+            // Même logique que pour les héros / capacités : dès que c'est verrouillé/plafonné/max,
+            // on sort du <button> et on affiche juste le texte rouge (pas de fond gris de bouton
+            // désactivé autour).
+            if ($is_house_capped_trp) {
+                echo "
                 <div class='troop-card-action'>
-                    <button class='btn-upgrade' {$disabled} onclick=\"triggerUpgradeCharacter('{$tid}', '{$safe_id_trp}', {$max})\">
-                        <span class='btn-text'>{$btn_text}</span>
+                    <span class='officer-ability-locked' style='color:#e74c3c;font-weight:bold;'>{$house_label} Niv. {$house_requis_next_trp} requis</span>
+                </div>
+            </div>";
+            } elseif ($is_maxed) {
+                echo "
+                <div class='troop-card-action'>
+                    <span class='officer-ability-locked' style='color:#e74c3c;font-weight:bold;'>Niveau max !</span>
+                </div>
+            </div>";
+            } elseif (!$house_ok) {
+                echo "
+                <div class='troop-card-action'>
+                    <span class='officer-ability-locked' style='color:#e74c3c;font-weight:bold;'>Verrouillé</span>
+                </div>
+            </div>";
+            } else {
+                echo "
+                <div class='troop-card-action'>
+                    <button class='btn-upgrade' onclick=\"triggerUpgradeCharacter('{$tid}', '{$safe_id_trp}', {$max})\">
+                        <span class='btn-text'>Améliorer</span>
                     </button>
                 </div>
             </div>";
+            }
 
             continue;
         }
@@ -932,6 +979,12 @@ function renderUnitsTable($data, $progress = [], $house_levels = [], $pdo = null
             // sont maintenant DANS unit-info-wrapper, sous unit-details.
             // =================================================================
             $hero_maxed = ($current_lvl >= $max_lvl);
+            // Vrai plafond de la table characters (indépendant du QG) : sert à distinguer
+            // "réellement au niveau max" de "juste bloqué par le QG actuel" (voir queries.php
+            // -> niveau_max_absolu / house_requis_next).
+            $niveau_max_absolu = (int)($u['niveau_max_absolu'] ?? $max_lvl);
+            $is_qg_capped = $hero_maxed && ($max_lvl < $niveau_max_absolu);
+            $qg_requis_next = (int)($u['house_requis_next'] ?? 0);
 
             echo "<div class='unit-info-wrapper'>
                 <div class='unit-img-wrapper'>
@@ -949,15 +1002,25 @@ function renderUnitsTable($data, $progress = [], $house_levels = [], $pdo = null
                 $temps_txt = formatUnitsTime($cost['UpgradeTimeH'] ?? 0);
 
                 echo "<div class='hero-upgrade-cost'>
-                        <span class='hero-cost-item'><img class='hero-cost-icon' src='images/icons/Gold.png' alt='Or' style='width:25px'>{$cout}</span>
+                        <span class='hero-cost-item'><img class='hero-cost-icon' src='images/icons/Gold.png' alt='Or' style='width:25px'>" . formatCost($cout) . "</span>
                         <span class='hero-time-item'><img class='hero-time-icon' src='images/icons/Time Icon.png'  style='width:25px' alt='Temps'>{$temps_txt}</span>
                     </div>";
             }
 
-            echo "<button class='btn-upgrade' " . ($hero_maxed ? "disabled" : "") . " onclick=\"triggerUpgradeCharacter('{$tid}', '{$safe_id}', {$max_lvl})\">
-                        " . ($hero_maxed ? "Max !" : "Améliorer") . "
-                    </button>
+            if ($hero_maxed && $is_qg_capped) {
+                // Même logique que les capacités d'officier verrouillées (officer-ability-locked) :
+                // texte rouge seul, PAS de bouton autour (sinon le fond/bordure du bouton reste
+                // visible même avec un texte rouge dedans).
+                echo "<span class='officer-ability-locked' style='color:#e74c3c;font-weight:bold;'>QG {$qg_requis_next} requis</span>
                 </div>"; // fin unit-info-wrapper
+            } else {
+                $hero_btn_txt = $hero_maxed ? "Max !" : "Améliorer";
+
+                echo "<button class='btn-upgrade' " . ($hero_maxed ? "disabled" : "") . " onclick=\"triggerUpgradeCharacter('{$tid}', '{$safe_id}', {$max_lvl})\">
+                            {$hero_btn_txt}
+                        </button>
+                    </div>"; // fin unit-info-wrapper
+            }
 
             // Rendu des 3 Capacités du héros côte à côte, en colonnes (pas de talents,
             // pas de distinction active/passive contrairement aux officiers)
@@ -1139,19 +1202,51 @@ function renderOfficerAbilityRow($talent, $id_character, $current_lvl, $type_lab
     // texte "Niveau X" ; tout le calcul du prochain palier / coût reste basé sur $ab_lvl (réel).
     $ab_lvl_display = (int)($talent['display_level'] ?? $ab_lvl);
 
-    $next_lvl = $ab_lvl + 1; // le niveau qui sera atteint APRÈS l'amélioration (texte/affichage uniquement)
-    $next_lvl_data = null;
-    if (!empty($talent['levels'])) {
-        foreach ($talent['levels'] as $row) {
-            // La ligne officer_abilities dont Niveau = niveau ACTUEL décrit le coût pour passer
-            // au niveau suivant (convention utilisée par upgrade_ability.php : WHERE Niveau =
-            // $current_ability_niveau).
+    // 🔒 Capacité de héros pas encore débloquée (Debloque = 0 en base, voir progress_ability).
+    // N'affecte que les entrées qui exposent explicitement ce flag (capacités de héros) ; les
+    // officiers, qui n'en ont pas, gardent leur comportement existant.
+    $is_locked = isset($talent['debloque']) && (int)$talent['debloque'] === 0;
+
+    $next_lvl = $ab_lvl + 1; // le niveau qui sera atteint APRÈS l'amélioration (texte/affichage ET calcul)
+
+    // Capacité verrouillée : ni niveau ni coût n'ont de sens tant que Debloque = 0, on
+    // n'affiche que le niveau de héros requis ("Niveau X requis"), pas de bouton.
+    // `niveau` vaut 1 en base pour une capacité jamais débloquée (placeholder, comme les
+    // talents d'officier) : le HeroLevel requis pour la DÉBLOQUER se lit donc sur la ligne
+    // Niveau = 1 (= $ab_lvl ici) — pas de "niveau suivant" à calculer, donc pas de +1 ici,
+    // contrairement au cas d'une capacité déjà débloquée traité plus bas.
+    if ($is_locked) {
+        $required_lvl = 0;
+        foreach ($talent['levels'] ?? [] as $row) {
             if ((int)$row['Niveau'] === $ab_lvl) {
-                $next_lvl_data = $row;
+                $required_lvl = (int)$row['HeroLevel'];
                 break;
             }
         }
+        return "<div class='officer-ability-row' data-id-ability='{$ab_id}'>
+                <div class='officer-ability-info'>
+                    <div class='officer-ability-header'>
+                        <div><span class='officer-ability-name'>{$talent['nom']}</span> <span class='officer-ability-type'>{$type_label}</span></div>
+                        <div><img src='images/characters/Officier/talent/{$ab_icon}.webp' class='officer-ability-icon'></div>
+                    </div>
+                </div>
+                <div class='officer-ability-upgrade'>
+                    <span class='officer-ability-locked' style='color: #e74c3c; font-weight: bold;'>Niveau {$required_lvl} requis</span>
+                </div>
+            </div>";
     }
+
+    // Capacité débloquée : la ligne officer_abilities dont Niveau = $next_lvl décrit les
+    // conditions (HeroLevel, coût) pour ATTEINDRE ce niveau — même convention corrigée que
+    // upgrade_ability.php (WHERE Niveau = $new_level, pas $current_ability_niveau).
+    $next_lvl_data = null;
+    foreach ($talent['levels'] ?? [] as $row) {
+        if ((int)$row['Niveau'] === $next_lvl) {
+            $next_lvl_data = $row;
+            break;
+        }
+    }
+
     // Un palier avec UpgradeCost = 0 (ou absent) est un "terminateur" : il ne s'agit pas d'un
     // vrai palier supplémentaire, juste du marqueur "rien de plus à acheter à partir d'ici".
     $is_max = ($next_lvl_data === null) || ((float)($next_lvl_data['UpgradeCost'] ?? 0) <= 0);
@@ -1159,7 +1254,7 @@ function renderOfficerAbilityRow($talent, $id_character, $current_lvl, $type_lab
     $cost_display = "";
     if ($next_lvl_data) {
         $resource_name = htmlspecialchars($next_lvl_data['UpgradeResource']);
-        $cost_display  = "<img src='images/{$resource_name}.png' alt='{$resource_name}' style='width: 20px; vertical-align: middle; margin-left: 4px;'>" . $next_lvl_data['UpgradeCost'];
+        $cost_display  = "<img src='images/{$resource_name}.png' alt='{$resource_name}' style='width: 20px; vertical-align: middle; margin-left: 4px;'>" . formatCost($next_lvl_data['UpgradeCost']);
     }
 
     $html = "<div class='officer-ability-row' data-id-ability='{$ab_id}'>
@@ -1172,15 +1267,20 @@ function renderOfficerAbilityRow($talent, $id_character, $current_lvl, $type_lab
             </div>
             <div class='officer-ability-upgrade'>";
                 if (!$is_max) {
-                    $req_h    = (int)$next_lvl_data['HeroLevel'];
-                    $can_up   = ($current_lvl >= $req_h);
-                    $btn_txt  = $can_up ? "Améliorer" : "Niv. {$req_h} requis";
-                    $disabled = $can_up ? "" : "disabled style='opacity:0.6; cursor:not-allowed;'";
+                    $req_h  = (int)$next_lvl_data['HeroLevel'];
+                    $can_up = ($current_lvl >= $req_h);
 
-                    $ab_nom_esc = htmlspecialchars(addslashes($talent['nom'] ?? $ab_tid), ENT_QUOTES);
-                    $html .= "<button class='btn-upgrade-ability' {$disabled} data-character='{$id_character}' data-ability='{$ab_id}' data-tid='{$ab_nom_esc}' data-next-level='{$next_lvl}' onclick=\"triggerUpgradeAbility(this, '{$ab_id}', '{$safe_ab_id}')\">{$btn_txt}</button>";
+                    if ($can_up) {
+                        $ab_nom_esc = htmlspecialchars(addslashes($talent['nom'] ?? $ab_tid), ENT_QUOTES);
+                        $html .= "<button class='btn-upgrade-ability' data-character='{$id_character}' data-ability='{$ab_id}' data-tid='{$ab_nom_esc}' data-next-level='{$next_lvl}' onclick=\"triggerUpgradeAbility(this, '{$ab_id}', '{$safe_ab_id}')\">Améliorer</button>";
+                    } else {
+                        // Même style que la capacité verrouillée (Debloque = 0) plus haut : texte
+                        // rouge, pas de bouton grisé, dès que le palier suivant n'est pas encore
+                        // accessible.
+                        $html .= "<span class='officer-ability-locked' style='color: #e74c3c; font-weight: bold;'>Niveau {$req_h} requis</span>";
+                    }
                 } else {
-                    $html .= "<span class='officer-ability-lvl-max' style='color: #e74c3c; font-weight: bold;'>Niveau max</span>";
+                    $html .= "<span class='officer-ability-locked' style='color: #e74c3c; font-weight: bold;'>Niveau max</span>";
                 }
     $html .= "</div>
         </div>";
@@ -1567,7 +1667,7 @@ function renderTribusTable($tribus_list) {
             $temps_txt = formatUnitsTime(($next_cost['time_min'] ?? 0) / 60);
             echo "
             <div class='building-card-costs'>
-                <span class='building-cost-item'><img class='building-cost-icon' src='images/icons/Raw Crystals.png' alt='Cristaux bruts' onerror=\"this.src='images/default.png'\">{$next_cost['cost']}</span>
+                <span class='building-cost-item'><img class='building-cost-icon' src='images/icons/Raw Crystals.png' alt='Cristaux bruts' onerror=\"this.src='images/default.png'\">" . formatCost($next_cost['cost']) . "</span>
             </div>
             <div class='building-card-time'>
                 <img class='building-time-icon' src='images/icons/Time Icon.png' alt='Temps'>{$temps_txt}

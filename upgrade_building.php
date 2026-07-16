@@ -66,8 +66,13 @@ try {
     // 3. Calcul du gain d'XP (Uniquement si le niveau > 0)
     $xp_gain = 0;
     if ($target_level > 0) {
+        // 👇 CORRECTION : Les mines utilisent le niveau ACTUEL (comme les personnages)
+        $xp_level = in_array($tid, ['TID_TRAP_MINE', 'TID_TRAP_TANK_MINE', 'TID_TRAP_SHOCK_MINE'])
+            ? $target_level - 1  // Mines : XP du niveau ACTUEL
+            : $target_level;     // Bâtiments : XP du niveau CIBLE
+
         $stmt_xp = $pdo->prepare("SELECT XpGain FROM buildings WHERE TID = ? AND Niveau = ?");
-        $stmt_xp->execute([$tid, $target_level]); 
+        $stmt_xp->execute([$tid, $xp_level]);
         $xp_gain = (int)($stmt_xp->fetchColumn() ?? 0);
     }
 

@@ -21,7 +21,7 @@ try {
     $stmt->execute([$new_qg, $_SESSION['player_id']]);
 
     // --- SECTION UNITÉS (Ton code actuel) ---
-    $stmt_unlock = $pdo->prepare("SELECT id, Class FROM characterid WHERE HQUnlock = ?");
+    $stmt_unlock = $pdo->prepare("SELECT id, Class, TID FROM characterid WHERE HQUnlock = ?");
     $stmt_unlock->execute([$new_qg]);
     $troupes = $stmt_unlock->fetchAll(PDO::FETCH_ASSOC);
 
@@ -30,13 +30,49 @@ try {
     // (symptôme observé : un même héros dupliqué plusieurs fois dans la liste des Héros).
     $stmt_check_unit = $pdo->prepare("SELECT 1 FROM progress_character WHERE id_player = ? AND id_character = ? LIMIT 1");
     $stmt_ins_unit = $pdo->prepare("INSERT INTO progress_character (id_player, id_character, niveau, Debloque) VALUES (?, ?, 1, ?)");
+
+    // --- Capacités de Héros : chaque héros a exactement 3 capacités (abilitieid.hero = TID
+    // du héros). Les 3 sont insérées à niveau = 1 dès le déblocage du héros (même convention
+    // que les talents d'officier, voir upgrade_character.php -> unlock_officer : niveau = 1
+    // que la capacité soit débloquée ou non). Seule la 1ère (unlock_order le plus bas) est
+    // en Debloque = 1 ; les 2 autres restent en Debloque = 0 jusqu'à ce que le héros atteigne
+    // le niveau requis (voir la synchro faite dans upgrade_character.php lors de la montée de
+    // niveau du héros). "Niveau 1" pour une capacité verrouillée n'est jamais affiché tel
+    // quel côté vue : tant que Debloque = 0, l'affichage montre "Niveau X requis" à la place
+    // (voir renderOfficerAbilityRow dans functions.php).
+    $stmt_hero_abilities = $pdo->prepare("SELECT id FROM abilitieid WHERE hero = ? ORDER BY unlock_order ASC");
+    $stmt_check_ability  = $pdo->prepare("SELECT 1 FROM progress_ability WHERE id_player = ? AND id_character = ? AND id_ability = ? LIMIT 1");
+    $stmt_ins_ability     = $pdo->prepare("INSERT INTO progress_ability (id_player, id_character, id_ability, niveau, Debloque) VALUES (?, ?, ?, 1, ?)");
+
     foreach ($troupes as $troupe) {
         $id = $troupe['id'] ?? $troupe['ID'];
+        $is_hero = (trim($troupe['Class']) === 'Hero');
         $unlock_val = (trim($troupe['Class']) === 'Officier') ? 0 : 1;
 
         $stmt_check_unit->execute([$_SESSION['player_id'], $id]);
-        if (!$stmt_check_unit->fetch()) {
+        $already_unlocked = (bool)$stmt_check_unit->fetch();
+        if (!$already_unlocked) {
             $stmt_ins_unit->execute([$_SESSION['player_id'], $id, $unlock_val]);
+        }
+
+        // Note : on n'insère l'unité elle-même (progress_character) que si elle n'existe pas
+        // encore ($already_unlocked), mais les CAPACITÉS de héros sont vérifiées et insérées
+        // indépendamment de ça (via $stmt_check_ability, une vérif PAR capacité juste en
+        // dessous) : sinon, un héros qui a déjà une ligne progress_character (ex. état
+        // préexistant, test antérieur, save Mass Upgrade) sans que ses capacités aient jamais
+        // été créées se retrouvait avec ses 3 capacités manquantes pour toujours, y compris la
+        // 1ère qui doit pourtant être Debloque = 1 d'office.
+        if ($is_hero) {
+            $stmt_hero_abilities->execute([$troupe['TID']]);
+            $hero_ability_ids = $stmt_hero_abilities->fetchAll(PDO::FETCH_COLUMN);
+
+            foreach ($hero_ability_ids as $index => $id_ability) {
+                $stmt_check_ability->execute([$_SESSION['player_id'], $id, $id_ability]);
+                if ($stmt_check_ability->fetch()) continue;
+
+                $debloque = ($index === 0) ? 1 : 0;
+                $stmt_ins_ability->execute([$_SESSION['player_id'], $id, $id_ability, $debloque]);
+            }
         }
     }
 
