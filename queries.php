@@ -161,8 +161,8 @@ function getBuildingsDisplay($pdo, $id_player, $qg, $arsenal_level_reel = 0, $ar
         $stmt_img->execute([$tid, $lvl_img]);
         $export_name = $stmt_img->fetchColumn() ?: 'default';
 
-        // Coût / temps / XP du PROCHAIN niveau (niveau_actuel + 1), si pas déjà au max
-        // Les Pièges se paient en OR (BuildCostGold) et non en bois/pierre/fer.
+        // Coût / temps / XP du PROCHAIN niveau (niveau_actuel + 1), si pas déjà au VRAI max
+        // (niveau_max_absolu). Les Pièges se paient en OR (BuildCostGold) et non en bois/pierre/fer.
         $next = null;
         $remaining_gold = 0;
         $remaining_wood = 0;
@@ -175,8 +175,15 @@ function getBuildingsDisplay($pdo, $id_player, $qg, $arsenal_level_reel = 0, $ar
         // exactement comme pour les Troupes.
         if ($is_mine) $niveau_max = $niveau_max_absolu;
 
-        if ($niveau_actuel < $niveau_max) {
-            // ✅ NOUVEAU : Pour les pièges, on utilise niveau_actuel (comme les troupes)
+        // 🔥 On calcule désormais le coût/temps du prochain palier dès que le bâtiment n'a
+        // pas atteint son VRAI maximum (niveau_max_absolu), même s'il est provisoirement
+        // plafonné par le QG/Arsenal actuel (niveau_actuel >= niveau_max). Le bloc "Améliorer"
+        // reste donc affiché avec ses coûts/temps ; seule la mention "QG/Arsenal niveau X"
+        // passe en cadenas (voir renderBuildingsTable), au lieu de faire disparaître tout le
+        // bloc derrière un simple texte "Niveau max !" — qui ne doit plus s'afficher QUE
+        // lorsque niveau_actuel >= niveau_max_absolu (voir plus bas, $is_maxed).
+        if ($niveau_actuel < $niveau_max_absolu) {
+            // ✅ Pour les pièges, on utilise niveau_actuel (comme les troupes)
             // Pour les autres bâtiments, on garde niveau_actuel + 1
             $next_lvl = $is_trap ? $niveau_actuel : $niveau_actuel + 1;
 
@@ -188,20 +195,24 @@ function getBuildingsDisplay($pdo, $id_player, $qg, $arsenal_level_reel = 0, $ar
             $stmt_next->execute([$tid, $next_lvl]);
             $next = $stmt_next->fetch(PDO::FETCH_ASSOC) ?: null;
 
-            // Total restant : pour les pièges, on part de niveau_actuel (pas niveau_actuel + 1)
-            $start_lvl = $is_trap ? $niveau_actuel : $niveau_actuel + 1;
-            $stmt_remaining = $pdo->prepare("
-                SELECT SUM(BuildCostGold) AS gold, SUM(BuildCostWood) AS wood, SUM(BuildCostStone) AS stone, SUM(BuildCostIron) AS iron,
-                    SUM(BuildTimeD*86400 + BuildTimeH*3600 + BuildTimeM*60 + BuildTimeS) AS time_seconds
-                FROM buildings WHERE TID = ? AND Niveau >= ? AND Niveau <= ?
-            ");
-            $stmt_remaining->execute([$tid, $start_lvl, $niveau_max]);
-            $row_remaining = $stmt_remaining->fetch(PDO::FETCH_ASSOC);
-            $remaining_gold         = (int)($row_remaining['gold'] ?? 0);
-            $remaining_wood         = (int)($row_remaining['wood'] ?? 0);
-            $remaining_stone        = (int)($row_remaining['stone'] ?? 0);
-            $remaining_iron         = (int)($row_remaining['iron'] ?? 0);
-            $remaining_time_seconds = (int)($row_remaining['time_seconds'] ?? 0);
+            // Total restant (jusqu'au niveau max ATTEIGNABLE avec le QG/Arsenal actuel
+            // uniquement) : inchangé, ne concerne que le récap "tout finir" de la sidebar.
+            if ($niveau_actuel < $niveau_max) {
+                // pour les pièges, on part de niveau_actuel (pas niveau_actuel + 1)
+                $start_lvl = $is_trap ? $niveau_actuel : $niveau_actuel + 1;
+                $stmt_remaining = $pdo->prepare("
+                    SELECT SUM(BuildCostGold) AS gold, SUM(BuildCostWood) AS wood, SUM(BuildCostStone) AS stone, SUM(BuildCostIron) AS iron,
+                        SUM(BuildTimeD*86400 + BuildTimeH*3600 + BuildTimeM*60 + BuildTimeS) AS time_seconds
+                    FROM buildings WHERE TID = ? AND Niveau >= ? AND Niveau <= ?
+                ");
+                $stmt_remaining->execute([$tid, $start_lvl, $niveau_max]);
+                $row_remaining = $stmt_remaining->fetch(PDO::FETCH_ASSOC);
+                $remaining_gold         = (int)($row_remaining['gold'] ?? 0);
+                $remaining_wood         = (int)($row_remaining['wood'] ?? 0);
+                $remaining_stone        = (int)($row_remaining['stone'] ?? 0);
+                $remaining_iron         = (int)($row_remaining['iron'] ?? 0);
+                $remaining_time_seconds = (int)($row_remaining['time_seconds'] ?? 0);
+            }
         }
 
         // Arsenal requis pour le PROCHAIN niveau (uniquement pertinent pour les mines,
@@ -209,6 +220,11 @@ function getBuildingsDisplay($pdo, $id_player, $qg, $arsenal_level_reel = 0, $ar
         // comme les Troupes / Proto-troupes avec UpgradeHouseLevel).
         $required_arsenal = $is_trap && $next ? (int)($next['TownHallLevel'] ?? 0) : 0;
         $arsenal_ok = !$is_trap || ($required_arsenal <= $arsenal_level_built);
+
+        // Niveau de bâtiment requis pour le PROCHAIN niveau, affiché comme condition
+        // informative sur la card (QG pour les bâtiments classiques, Arsenal pour les
+        // Pièges — même colonne TownHallLevel, sens différent selon la catégorie).
+        $required_level = $next ? (int)($next['TownHallLevel'] ?? 0) : 0;
 
         $buildings_display[$category][] = [
             'TID'           => $tid,
@@ -223,6 +239,11 @@ function getBuildingsDisplay($pdo, $id_player, $qg, $arsenal_level_reel = 0, $ar
             'is_mine'          => $is_mine,
             'required_arsenal' => $required_arsenal,
             'arsenal_ok'       => $arsenal_ok,
+            'required_level'   => $required_level,
+            // Niveau réel actuel du bâtiment qui gate ce TID (QG pour les bâtiments
+            // classiques, Arsenal réel pour les Pièges) — sert uniquement à afficher
+            // le cadenas ouvert/fermé à côté de "QG/Arsenal niveau X requis".
+            'gating_level_actuel' => $gating_level,
             // Pièges : uniquement l'Or compte. Autres catégories : bois/pierre/fer.
             'BuildCostGold'  => $is_trap ? ($next['BuildCostGold']  ?? null) : null,
             'BuildCostWood'  => $is_trap ? null : ($next['BuildCostWood']  ?? null),
@@ -534,7 +555,13 @@ function getFilteredUnits($pdo, $qg, $arsenal_max, $typeFilterSQL, $player_progr
         $next_cost = null;
         $remaining_cost = 0;
         $remaining_time_h = 0.0;
-        if ($niveau_joueur < $niveau_max) {
+        // 🔥 Le coût/temps du PROCHAIN palier est désormais calculé dès que le VRAI maximum
+        // (niveau_max_absolu) n'est pas atteint — même si le palier est provisoirement
+        // plafonné par l'Arsenal/Atelier/QG actuel (niveau_joueur >= niveau_max). Le bloc
+        // "Améliorer" reste donc affiché avec ses coûts/temps dans ce cas (voir functions.php),
+        // seule la mention "Arsenal/QG niveau X" passe en cadenas. "Niveau max !" ne doit plus
+        // s'afficher QUE lorsque niveau_joueur >= niveau_max_absolu (voir plus bas, is_maxed).
+        if ($niveau_joueur < $niveau_max_absolu) {
             try {
                 $stmt_next_cost = $pdo->prepare("
                     SELECT UpgradeCost, UpgradeTimeH, XpGain, UpgradeHouseLevel
@@ -543,16 +570,18 @@ function getFilteredUnits($pdo, $qg, $arsenal_max, $typeFilterSQL, $player_progr
                 $stmt_next_cost->execute([$u['TID'], $niveau_joueur]);
                 $next_cost = $stmt_next_cost->fetch(PDO::FETCH_ASSOC) ?: null;
 
-                // Total restant : somme de tous les niveaux entre l'actuel et le plafond ATTEIGNABLE
-                // (donc jusqu'à ce que l'Arsenal/Atelier soit lui-même amélioré, pas jusqu'au max absolu).
-                $stmt_remaining = $pdo->prepare("
-                    SELECT SUM(UpgradeCost) AS total_cost, SUM(UpgradeTimeH) AS total_time
-                    FROM characters WHERE TID = ? AND Niveau >= ? AND Niveau < ?
-                ");
-                $stmt_remaining->execute([$u['TID'], $niveau_joueur, $niveau_max]);
-                $row_remaining = $stmt_remaining->fetch(PDO::FETCH_ASSOC);
-                $remaining_cost   = (int)($row_remaining['total_cost'] ?? 0);
-                $remaining_time_h = (float)($row_remaining['total_time'] ?? 0);
+                // Total restant (jusqu'au plafond ATTEIGNABLE avec l'Arsenal/Atelier/QG actuel
+                // uniquement) : inchangé, ne concerne que le récap "tout finir" de la sidebar.
+                if ($niveau_joueur < $niveau_max) {
+                    $stmt_remaining = $pdo->prepare("
+                        SELECT SUM(UpgradeCost) AS total_cost, SUM(UpgradeTimeH) AS total_time
+                        FROM characters WHERE TID = ? AND Niveau >= ? AND Niveau < ?
+                    ");
+                    $stmt_remaining->execute([$u['TID'], $niveau_joueur, $niveau_max]);
+                    $row_remaining = $stmt_remaining->fetch(PDO::FETCH_ASSOC);
+                    $remaining_cost   = (int)($row_remaining['total_cost'] ?? 0);
+                    $remaining_time_h = (float)($row_remaining['total_time'] ?? 0);
+                }
             } catch (PDOException $e) {
                 // On log l'erreur mais on ne casse jamais l'affichage de la page pour un souci de coût
                 error_log("Erreur récupération coût troupe {$u['TID']} niveau {$niveau_joueur} : " . $e->getMessage());
@@ -591,6 +620,10 @@ function getFilteredUnits($pdo, $qg, $arsenal_max, $typeFilterSQL, $player_progr
             'niveau_autorise' => $niveau_max,
             'niveau_max_absolu' => $niveau_max_absolu,
             'house_requis_next' => $house_requis_next,
+            // Niveau réel actuel du bâtiment qui gate cette unité (Arsenal/Atelier/QG selon
+            // la classe) — sert uniquement à afficher le cadenas ouvert/fermé à côté de la
+            // condition "Arsenal/QG niveau X" (voir functions.php).
+            'gating_level_actuel' => $relevant_house_level,
             'next_cost' => $next_cost,
             // Totaux restants (jusqu'au niveau max), pour le récap de la sidebar
             'remaining_cost' => $remaining_cost,
@@ -839,6 +872,34 @@ $tab_monument_unlocked      = ($monument_level > 0);
 $tab_gravures_unlocked      = ($graveur_level > 0);
 $tab_gravures_off_unlocked  = ($graveur_level > 0);
 $tab_gravures_def_unlocked  = ($graveur_level >= 2);
+
+// --- Déblocage des sous-onglets "Armée" -----------------------------------
+// Même logique que le filtre "ci.HQUnlock <= qg" déjà utilisé dans getFilteredUnits() :
+// chaque Classe (Troupe/Hero/Proto/Officier/Spell) a un HQUnlock minimum en base
+// (characterid.HQUnlock). Tant que le QG du joueur n'atteint pas ce minimum, l'onglet
+// correspondant n'a strictement aucun contenu à afficher : on le verrouille donc plutôt
+// que de laisser l'utilisateur ouvrir une page vide ("Aucune unité débloquée").
+$stmt_hq_min = $pdo->query("
+    SELECT Class, MIN(HQUnlock) AS hq_min
+    FROM characterid
+    WHERE Class IN ('Troupe', 'Hero', 'Proto', 'Officier', 'Spell')
+    GROUP BY Class
+");
+$hq_min_by_class = [];
+while ($row = $stmt_hq_min->fetch(PDO::FETCH_ASSOC)) {
+    $hq_min_by_class[$row['Class']] = (int)$row['hq_min'];
+}
+$hq_min_troupe   = $hq_min_by_class['Troupe']   ?? 1;
+$hq_min_hero     = $hq_min_by_class['Hero']     ?? 1;
+$hq_min_proto    = $hq_min_by_class['Proto']    ?? 1;
+$hq_min_officier = $hq_min_by_class['Officier'] ?? 1;
+$hq_min_spell    = $hq_min_by_class['Spell']    ?? 1;
+
+$tab_troupes_unlocked   = ($qg >= $hq_min_troupe);
+$tab_heros_unlocked     = ($qg >= $hq_min_hero);
+$tab_proto_unlocked     = ($qg >= $hq_min_proto);
+$tab_chefs_unlocked     = ($qg >= $hq_min_officier);
+$tab_capacanon_unlocked = ($qg >= $hq_min_spell);
 
 // Progression du joueur sur chaque tribu, indexée par id_trib (= tribsid.id).
 // 'niveau' = palier atteint ; 'debloque' = le joueur a bien cliqué sur "Débloquer"

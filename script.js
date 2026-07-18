@@ -878,6 +878,90 @@ function triggerUpgradeBuilding(tid, idInstance, niveauActuel, niveauMax, safeId
 }
 
 
+// Bouton "Rétrograder" des cartes bâtiments : repasse le bâtiment au niveau précédent
+// et retire l'XP correspondante côté joueur (voir downgrade_building.php).
+function triggerDowngradeBuilding(tid, idInstance, niveauActuel, safeId) {
+    if (niveauActuel <= 0) return;
+
+    if (!confirm("Rétrograder ce bâtiment au niveau " + (niveauActuel - 1) + " ? Cela retirera l'expérience gagnée à ce niveau.")) {
+        return;
+    }
+
+    const btn = document.querySelector(`#card-${safeId} .btn-downgrade`);
+    if (btn) btn.disabled = true;
+
+    const formData = new FormData();
+    formData.append('action', 'downgrade');
+    formData.append('tid', tid);
+    formData.append('id_instance', idInstance);
+    formData.append('current_level', niveauActuel);
+
+    fetch('upgrade_building.php', { method: 'POST', body: formData })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            // Recharge pour refléter le nouveau niveau, les coûts du palier redevenu "suivant"
+            // et la nouvelle XP totale du joueur.
+            location.reload();
+        } else {
+            alert(data.message || "Erreur lors de la rétrogradation du bâtiment.");
+            if (btn) btn.disabled = false;
+        }
+    })
+    .catch(err => {
+        if (err.name === 'AbortError') return;
+        console.error('Erreur triggerDowngradeBuilding:', err);
+        alert("Erreur réseau, réessaie.");
+        if (btn) btn.disabled = false;
+    });
+}
+
+// Bouton "Rétrograder" des cartes troupes/proto-troupes/capacités : même principe,
+// repasse le personnage au niveau précédent et retire l'XP correspondante
+// (voir downgrade_character.php).
+function triggerDowngradeCharacter(tid, safeId, niveauActuel) {
+    if (niveauActuel <= 1) return;
+
+    if (!confirm("Rétrograder ce personnage au niveau " + (niveauActuel - 1) + " ? Cela retirera l'expérience gagnée à ce niveau.")) {
+        return;
+    }
+
+    const btn = document.querySelector(`#card-${safeId} .btn-downgrade`);
+    if (btn) btn.disabled = true;
+
+    const formData = new FormData();
+    formData.append('action', 'downgrade');
+    formData.append('tid', tid);
+    formData.append('current_level', niveauActuel);
+
+    fetch('upgrade_character.php', { method: 'POST', body: formData })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            location.reload();
+        } else {
+            alert(data.message || "Erreur lors de la rétrogradation du personnage.");
+            if (btn) btn.disabled = false;
+        }
+    })
+    .catch(err => {
+        if (err.name === 'AbortError') return;
+        console.error('Erreur triggerDowngradeCharacter:', err);
+        alert("Erreur réseau, réessaie.");
+        if (btn) btn.disabled = false;
+    });
+}
+
+// Sidebars de stats (bâtiments/troupes/héros/officiers) : accordéon <details> natif.
+// Etat initial uniquement : ouvert sur PC, fermé sur mobile — l'utilisateur peut
+// toujours cliquer sur le résumé pour l'ouvrir/le fermer ensuite, dans les deux cas.
+document.addEventListener('DOMContentLoaded', () => {
+    const isDesktop = window.matchMedia('(min-width: 769px)').matches;
+    document.querySelectorAll('.stats-sidebar-accordion').forEach((el) => {
+        el.open = isDesktop;
+    });
+});
+
 // Fonction pour basculer les sous-onglets de gravures
 window.showEngravingSubTab = function(subTabId, buttonElement) {
     document.querySelectorAll('.engraving-sub-content').forEach(content => {

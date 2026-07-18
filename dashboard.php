@@ -21,6 +21,7 @@ if (!isset($_SESSION['player_id'])) {
 // 3. Ensuite, on inclut les requêtes
 require_once 'queries.php';
 require_once 'functions.php';
+require_once 'admin_config.php';
 
 // On récupère les coûts de tous les bâtiments en base de données
 $stmt_prix = $pdo->query("SELECT * FROM buildings"); 
@@ -110,7 +111,7 @@ $bb_languages = [
                     <span class="sidebar-logo-text">Beachapedia</span>
                 </a>
                 <button type="button" class="sidebar-toggle" id="sidebarToggle" onclick="toggleSidebar()" aria-label="Réduire / agrandir le menu">
-                    <img src="images/icons/gacha_info_icon.png" style="width: 25px;"/>
+                    <img src="images/icons/Menu.png" style="width: 25px;"/>
                 </button>
             </div>
 
@@ -146,9 +147,27 @@ $bb_languages = [
                         </div>
                         <ul class="submenu" style="display: none;">
                             <li><button class="nav-button" onclick="showTab('Character-Troop')">Troupes</button></li>
-                            <li><button class="nav-button" onclick="showTab('Character-Hero')">Héros</button></li>
-                            <li><button class="nav-button" onclick="showTab('Character-Proto')">Proto-troupes</button></li>
-                            <li><button class="nav-button" onclick="showTab('Character-Leader')">Chef de bataillon</button></li>
+                            <li>
+                                <?php if ($tab_heros_unlocked): ?>
+                                <button class="nav-button" onclick="showTab('Character-Hero')">Héros</button>
+                                <?php else: ?>
+                                <button class="nav-button locked" disabled title="Débloqué au QG niveau <?php echo (int)$hq_min_hero; ?> (actuel : <?php echo (int)$qg; ?>)">Héros 🔒</button>
+                                <?php endif; ?>
+                            </li>
+                            <li>
+                                <?php if ($tab_proto_unlocked): ?>
+                                <button class="nav-button" onclick="showTab('Character-Proto')">Proto-troupes</button>
+                                <?php else: ?>
+                                <button class="nav-button locked" disabled title="Débloqué au QG niveau <?php echo (int)$hq_min_proto; ?> (actuel : <?php echo (int)$qg; ?>)">Proto-troupes 🔒</button>
+                                <?php endif; ?>
+                            </li>
+                            <li>
+                                <?php if ($tab_chefs_unlocked): ?>
+                                <button class="nav-button" onclick="showTab('Character-Leader')">Chef de bataillon</button>
+                                <?php else: ?>
+                                <button class="nav-button locked" disabled title="Débloqué au QG niveau <?php echo (int)$hq_min_officier; ?> (actuel : <?php echo (int)$qg; ?>)">Chef de bataillon 🔒</button>
+                                <?php endif; ?>
+                            </li>
                             <li><button class="nav-button" onclick="showTab('Character-Spell')">Capacité de canonnière</button></li>
                         </ul>
                     </div>
@@ -266,6 +285,9 @@ $bb_languages = [
 
                         <div class="profile-dropdown" id="profileDropdown">
                             <a href="#" onclick="showTab('MassUpgrade'); return false;">🚀 Mass Upgrade</a>
+                            <?php if (($_SESSION['player_id'] ?? null) === ADMIN_PLAYER_ID): ?>
+                            <a href="admin.php">🛠️ Administration</a>
+                            <?php endif; ?>
                             <a href="deconnexion.php">🚪 Déconnexion</a>
                         </div>
                     </div>
@@ -420,9 +442,9 @@ $bb_languages = [
         <div id="Army-Overview" class="tab-content">
             <?php renderCategoryNav('Armée', [
                 ['label' => 'Troupes',            'tab' => 'Character-Troop',  'icon' => '<img src="images/icons/Fusilier_badge.webp" style="width: 50px;"/>'],
-                ['label' => 'Héros',               'tab' => 'Character-Hero',   'icon' => '<img src="images/icons/buildingbutton_heroes.png" style="width: 50px;"/>'],
-                ['label' => 'Proto-troupes',       'tab' => 'Character-Proto',  'icon' => '<img src="images/icons/buildingbutton_prototroops.png" style="width: 50px;"/>'],
-                ['label' => 'Chef de bataillon',   'tab' => 'Character-Leader', 'icon' => '<img src="images/icons/OfficerIcon.webp" style="width: 50px;"/>'],
+                ['label' => 'Héros',               'tab' => 'Character-Hero',   'icon' => '<img src="images/icons/buildingbutton_heroes.png" style="width: 50px;"/>', 'locked' => !$tab_heros_unlocked, 'lock_tooltip' => "Débloqué au QG niveau {$hq_min_hero} (actuel : {$qg})"],
+                ['label' => 'Proto-troupes',       'tab' => 'Character-Proto',  'icon' => '<img src="images/icons/buildingbutton_prototroops.png" style="width: 50px;"/>', 'locked' => !$tab_proto_unlocked, 'lock_tooltip' => "Débloqué au QG niveau {$hq_min_proto} (actuel : {$qg})"],
+                ['label' => 'Chef de bataillon',   'tab' => 'Character-Leader', 'icon' => '<img src="images/icons/OfficerIcon.webp" style="width: 50px;"/>', 'locked' => !$tab_chefs_unlocked, 'lock_tooltip' => "Débloqué au QG niveau {$hq_min_officier} (actuel : {$qg})"],
                 ['label' => 'Capacité de canonnière', 'tab' => 'Character-Spell', 'icon' => '🚤'],
             ]); ?>
             <?php renderArmyResourceSummaryTable($resume_armee); ?>

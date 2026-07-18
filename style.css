@@ -425,6 +425,29 @@ h3{
     margin: 10px;
 }
 
+/* Mobile : la sidebar de stats (2e enfant, flex:1 en ligne) passe AU-DESSUS des cards
+   (juste sous le h2) au lieu de rester collée à côté — on reste dans le même
+   .dashboard-wrapper, on empile juste verticalement + on réordonne visuellement
+   via `order` (le DOM et le rendu desktop ne changent pas). */
+@media (max-width: 768px) {
+    .dashboard-wrapper {
+        flex-direction: column;
+    }
+
+    .dashboard-wrapper > div {
+        flex: 1 1 auto !important;
+        width: 100%;
+    }
+
+    .dashboard-wrapper > div:first-child {
+        order: 2;
+    }
+
+    .dashboard-wrapper > div:last-child {
+        order: 1;
+    }
+}
+
 .category-nav-grid{
     display: flex;
     gap: 20px;
@@ -591,6 +614,24 @@ button.btn-upgrade-talent {
 .hero-time-icon{
     width: 18px;
     vertical-align: middle;
+}
+
+/* Condition "QG niveau X" pour le prochain niveau de héros, au-dessus du coût/temps */
+.hero-upgrade-condition {
+    align-self: flex-start;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.82em;
+    font-weight: 600;
+    color: #95a5a6;
+    margin-top: 4px;
+}
+
+.hero-condition-icon {
+    width: 20px;
+    height: 20px;
+    object-fit: contain;
 }
 
 
@@ -1127,49 +1168,32 @@ button.btn-upgrade-talent {
    CARTES DE BÂTIMENTS (renderBuildingsTable)
    ========================================================================== */
 
-/* Grille : 2 bâtiments par ligne */
+/* Grille : 3 bâtiments par ligne */
 .buildings-grid {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(3, 1fr);
     gap: 20px;
 }
 
-/* Carte individuelle : contenu centré verticalement */
+/* Carte individuelle : nom/niveau -> image -> coûts en colonne -> boutons */
 .building-card {
     background: #2c3e50;
     border: 2px solid #34495e;
     border-radius: 15px;
-    padding: 20px;
     color: white;
     display: flex;
     flex-direction: column;
-    align-items: center;
-    text-align: center;
-    gap: 10px;
+    overflow: hidden;
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
-}
-
-.building-card-visual {
-    background: rgba(0, 0, 0, 0.2);
-    border-radius: 8px;
-    padding: 15px;
-    display: flex;
-    justify-content: center;
-    width: 100%;
-    box-sizing: border-box;
-}
-
-.building-card-img {
-    max-width: 80px;
-    max-height: 80px;
-    object-fit: contain;
 }
 
 .building-card-info {
     display: flex;
     flex-direction: column;
     align-items: center;
+    text-align: center;
     gap: 4px;
+    padding: 16px 18px 0;
 }
 
 .building-card-name {
@@ -1184,21 +1208,91 @@ button.btn-upgrade-talent {
     font-size: 1em;
 }
 
-/* Ligne des 3 coûts (Bois / Pierre / Fer) avec icônes */
-.building-card-costs {
+.building-card-visual {
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 8px;
+    margin: 12px 18px 0;
+    padding: 15px;
     display: flex;
     justify-content: center;
-    gap: 14px;
+    box-sizing: border-box;
+}
+
+.building-card-img {
+    max-width: 80px;
+    max-height: 80px;
+    object-fit: contain;
+}
+
+/* Zone basse : titre d'amélioration, coûts, temps, boutons */
+.building-card-body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 10px;
+    padding: 16px 18px 18px;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.building-card-upgrade-title {
+    font-weight: bold;
+    font-size: 1em;
+    color: #ecf0f1;
+    align-self: flex-start;
+}
+
+.building-card-maxed {
+    color: #e74c3c;
+    font-weight: bold;
+    font-size: 1.05em;
+}
+
+/* Condition "QG niveau X" / "Arsenal niveau X", entre le titre et les coûts */
+.building-card-condition {
+    align-self: flex-start;
+    font-size: 0.82em;
+    font-weight: 600;
+    color: #95a5a6;
+    margin-top: -4px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.building-card-condition-icon {
+    width: 20px;
+    height: 20px;
+    object-fit: contain;
+}
+
+/* Coûts affichés en colonne (un par ligne), icône + valeur groupées à gauche */
+.building-card-costs {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
     width: 100%;
 }
 
-.building-cost-item {
+.building-cost-row {
     display: flex;
     align-items: center;
-    gap: 5px;
+    justify-content: flex-start;
+    gap: 10px;
+    width: 100%;
     font-size: 0.9em;
     font-weight: 600;
     color: #ecf0f1;
+}
+
+.building-cost-label {
+    display: flex;
+    align-items: center;
+}
+
+.building-cost-value {
+    font-variant-numeric: tabular-nums;
 }
 
 .building-cost-icon {
@@ -1224,13 +1318,8 @@ button.btn-upgrade-talent {
     object-fit: contain;
 }
 
-/* Bouton Construire / Améliorer, toujours en dernier, pleine largeur */
-.building-card-action {
-    width: 100%;
-    margin-top: 5px;
-}
-
-.building-card-action .btn-upgrade {
+/* Bouton Construire / Améliorer, pleine largeur */
+.building-card-body .btn-upgrade {
     width: 100%;
     padding: 8px 15px;
     border: none;
@@ -1241,17 +1330,57 @@ button.btn-upgrade-talent {
     color: white;
 }
 
-.building-card-action .btn-upgrade:hover:not(:disabled) {
+.building-card-body .btn-upgrade:hover:not(:disabled) {
     background: #16a085;
 }
 
-.building-card-action .btn-upgrade:disabled {
+.building-card-body .btn-upgrade:disabled {
     background: #576574;
     cursor: not-allowed;
     opacity: 0.7;
 }
 
-/* Adaptabilité mobile : 1 bâtiment par ligne */
+/* Bouton "Améliorer" verrouillé (QG/Arsenal pas encore au niveau requis) : rouge, inerte.
+   Priorité sur le disabled générique gris grâce à la classe supplémentaire .btn-locked. */
+.building-card-body .btn-upgrade.btn-locked:disabled {
+    background: #e74c3c;
+    color: white;
+    opacity: 1;
+    cursor: not-allowed;
+}
+
+/* Bouton Rétrograder, transparent avec bord + texte en vert (logique branchée plus tard) */
+.building-card-body .btn-downgrade {
+    width: 100%;
+    padding: 7px 15px;
+    border: 1px solid #1abc9c;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 0.9em;
+    background: transparent;
+    color: #1abc9c;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.building-card-body .btn-downgrade:hover:not(:disabled) {
+    background: rgba(26, 188, 156, 0.1);
+}
+
+.building-card-body .btn-downgrade:disabled {
+    opacity: 0.4;
+    border-color: #576574;
+    color: #576574;
+    cursor: not-allowed;
+}
+
+/* Adaptabilité : 2 bâtiments par ligne en tablette, 1 en mobile */
+@media (max-width: 1100px) {
+    .buildings-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
 @media (max-width: 768px) {
     .buildings-grid {
         grid-template-columns: 1fr;
@@ -1320,10 +1449,10 @@ button.btn-upgrade-talent {
     font-size: 1em;
 }
 
-/* Ligne des coûts (Or / Jetons Proto) avec icônes */
+/* Ligne des coûts (Or / Jetons Proto) avec icônes, alignée à gauche */
 .troop-card-costs {
     display: flex;
-    justify-content: center;
+    justify-content: flex-start;
     gap: 14px;
     width: 100%;
 }
@@ -1387,11 +1516,132 @@ button.btn-upgrade-talent {
     opacity: 0.7;
 }
 
-/* Adaptabilité mobile : 1 unité par ligne */
+/* Titre "Améliorer au niveau X :", aligné à gauche comme sur les cards bâtiments */
+.troop-card-upgrade-title {
+    align-self: flex-start;
+    font-weight: bold;
+    font-size: 1em;
+    color: #ecf0f1;
+}
+
+/* Condition "Arsenal niveau X" / "Atelier de Proto-troupes niveau X", entre le niveau et les coûts */
+.troop-card-condition {
+    align-self: flex-start;
+    font-size: 0.82em;
+    font-weight: 600;
+    color: #95a5a6;
+    margin-top: -4px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.troop-card-condition.locked {
+    color: #e74c3c;
+}
+
+.troop-card-condition-icon {
+    width: 20px;
+    height: 20px;
+    object-fit: contain;
+}
+
+/* Bouton Rétrograder, transparent avec bord + texte en vert (logique branchée plus tard) */
+.troop-card-action .btn-downgrade {
+    width: 100%;
+    margin-top: 8px;
+    padding: 7px 15px;
+    border: 1px solid #1abc9c;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 0.9em;
+    background: transparent;
+    color: #1abc9c;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.troop-card-action .btn-downgrade:hover:not(:disabled) {
+    background: rgba(26, 188, 156, 0.1);
+}
+
+.troop-card-action .btn-downgrade:disabled {
+    opacity: 0.4;
+    border-color: #576574;
+    color: #576574;
+    cursor: not-allowed;
+}
+
+/* Adaptabilité : 2 unités par ligne en tablette, 1 en mobile */
+@media (max-width: 1100px) {
+    .troops-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
 @media (max-width: 768px) {
     .troops-grid {
         grid-template-columns: 1fr;
     }
+}
+
+/* ==========================================================================
+   ACCORDÉON DES SIDEBARS DE STATS
+   (renderStatsSidebar / renderUnitsStatsSidebar / renderHeroesStatsSidebar /
+   renderLeadersStatsSidebar) — ouvert par défaut sur PC, fermé sur mobile
+   (état initial géré en JS via matchMedia, toggle natif <details> ensuite).
+   ========================================================================== */
+
+.stats-sidebar {
+    background: #2c3e50;
+    border-radius: 8px;
+    color: #fff;
+    border: 1px solid #456789;
+    overflow: hidden;
+}
+
+.stats-sidebar-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 15px;
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+}
+
+.stats-sidebar-summary::-webkit-details-marker {
+    display: none;
+}
+
+.stats-sidebar-title {
+    font-weight: bold;
+    font-size: 1.05em;
+}
+
+.stats-sidebar-percent {
+    font-size: 1.3em;
+    font-weight: bold;
+    color: #1abc9c;
+    flex-shrink: 0;
+}
+
+.stats-sidebar-arrow {
+    font-size: 0.8em;
+    color: #bdc3c7;
+    transition: transform 0.2s ease;
+    flex-shrink: 0;
+}
+
+.stats-sidebar-accordion[open] > .stats-sidebar-summary .stats-sidebar-arrow {
+    transform: rotate(180deg);
+}
+
+.stats-sidebar-content {
+    padding: 0 15px 15px;
+    border-top: 1px solid #3e4a56;
+    padding-top: 12px;
 }
 
 /* ==========================================================================

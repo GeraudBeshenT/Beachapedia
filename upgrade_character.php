@@ -120,6 +120,75 @@ try {
 
         echo json_encode(['success' => true, 'message' => 'Officier débloqué !']);
         exit;
+    } elseif ($action === 'downgrade') {
+        // --- RÉTROGRADATION (miroir de la branche "amélioration classique" ci-dessous) ---
+        $tid           = isset($_POST['tid']) ? trim($_POST['tid']) : null;
+        $current_level = isset($_POST['current_level']) ? intval($_POST['current_level']) : null;
+
+        if (!$tid || $current_level === null) throw new Exception("Données manquantes.");
+        if ($current_level <= 1) throw new Exception("Ce personnage est déjà à son niveau minimum.");
+
+        $target_level = $current_level - 1;
+
+        $pdo->beginTransaction();
+
+        $stmt_id = $pdo->prepare("SELECT id, Class FROM characterid WHERE TID = ? LIMIT 1");
+        $stmt_id->execute([$tid]);
+        $char_row = $stmt_id->fetch(PDO::FETCH_ASSOC);
+        if (!$char_row) throw new Exception("Personnage introuvable.");
+        $id_character = (int)$char_row['id'];
+
+        // Garde-fou anti-course/anti-triche : le niveau en base doit correspondre à ce que
+        // la card affichait au moment du clic.
+        $stmt_check = $pdo->prepare("SELECT niveau FROM progress_character WHERE id_player = ? AND id_character = ? LIMIT 1");
+        $stmt_check->execute([$id_player, $id_character]);
+        $niveau_en_base = (int)($stmt_check->fetchColumn() ?: 0);
+        if ($niveau_en_base !== $current_level) {
+            throw new Exception("Le niveau a changé entre-temps, recharge la page et réessaie.");
+        }
+
+        // Mise à jour du niveau du personnage
+        $stmt_update = $pdo->prepare("UPDATE progress_character SET niveau = ? WHERE id_player = ? AND id_character = ?");
+        $stmt_update->execute([$target_level, $id_player, $id_character]);
+
+        // Resynchronisation des officiers liés à cette troupe (characterid.Officer = TID de la
+        // troupe), seulement ceux déjà présents en base — on ne crée jamais de nouvelle ligne ici.
+        // NB : on ne re-verrouille volontairement PAS les capacités de héros (Debloque 1 -> 0),
+        // même choix de conception que la branche amélioration classique ci-dessous ("on ne
+        // touche jamais Debloque=1 -> 0").
+        $stmt_officers = $pdo->prepare("SELECT ID FROM characterid WHERE Officer = ?");
+        $stmt_officers->execute([$tid]);
+        $officer_ids = $stmt_officers->fetchAll(PDO::FETCH_COLUMN);
+
+        foreach ($officer_ids as $officer_id) {
+            $officer_id = (int)$officer_id;
+            $stmt_update_ofc = $pdo->prepare("UPDATE progress_character SET niveau = ? WHERE id_player = ? AND id_character = ?");
+            $stmt_update_ofc->execute([$target_level, $id_player, $officer_id]);
+        }
+
+        // XP à retirer : même formule que le gain (Niveau = target_level), appliquée en sens inverse.
+        $stmt_xp = $pdo->prepare("SELECT XpGain FROM characters WHERE TID = ? AND Niveau = ?");
+        $stmt_xp->execute([$tid, $target_level]);
+        $xp_a_retirer = (int)($stmt_xp->fetchColumn() ?: 0);
+
+        if ($xp_a_retirer > 0) {
+            $stmt_update_xp = $pdo->prepare("UPDATE joueurs SET experience = GREATEST(0, experience - ?) WHERE id_player = ?");
+            $stmt_update_xp->execute([$xp_a_retirer, $id_player]);
+        }
+
+        $pdo->commit();
+
+        $stmt_new = $pdo->prepare("SELECT experience FROM joueurs WHERE id_player = ?");
+        $stmt_new->execute([$id_player]);
+        $new_xp_total = (int)$stmt_new->fetchColumn();
+
+        echo json_encode([
+            'success'   => true,
+            'new_xp'    => $new_xp_total,
+            'new_level' => $target_level,
+            'message'   => 'Personnage rétrogradé.'
+        ]);
+        exit;
     } else {
         // --- LOGIQUE AMÉLIORATION CLASSIQUE ---
         $tid = isset($_POST['tid']) ? trim($_POST['tid']) : null;
