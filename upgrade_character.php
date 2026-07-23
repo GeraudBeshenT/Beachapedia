@@ -120,6 +120,53 @@ try {
 
         echo json_encode(['success' => true, 'message' => 'Officier débloqué !']);
         exit;
+    } elseif ($action === 'lock_officer') {
+        // --- LOGIQUE REVERROUILLAGE OFFICIER (symétrique de unlock_officer) ---
+        $id_character = isset($_POST['id_character']) ? (int)$_POST['id_character'] : null;
+        if (!$id_character) throw new Exception("ID de l'officier manquant.");
+
+        // 1. L'officier lui-même repasse verrouillé. On NE touche PAS à "niveau" : ce champ
+        //    est un simple miroir du niveau de la troupe liée (voir unlock_officer plus haut),
+        //    pas une progression propre à l'officier -- le remettre à 0 afficherait à tort
+        //    "Niveau 0" pour la troupe. Seul Debloque repasse à 0.
+        $stmt_check = $pdo->prepare("SELECT 1 FROM progress_character WHERE id_player = ? AND id_character = ?");
+        $stmt_check->execute([$id_player, $id_character]);
+
+        if ($stmt_check->fetch()) {
+            $stmt = $pdo->prepare("UPDATE progress_character SET Debloque = 0 WHERE id_player = ? AND id_character = ?");
+            $stmt->execute([$id_player, $id_character]);
+        } else {
+            $stmt = $pdo->prepare("INSERT INTO progress_character (id_player, id_character, niveau, Debloque) VALUES (?, ?, 1, 0)");
+            $stmt->execute([$id_player, $id_character]);
+        }
+
+        // 2. Capacités ACTIVE + PASSIVE **ET** TALENTS -> Debloque = 0, niveau = 1.
+        $stmt_abilities = $pdo->prepare("
+            SELECT ai.id
+            FROM characterid ci
+            INNER JOIN officer_talents ot ON ot.TID = ci.TID
+            INNER JOIN abilitieid ai ON ai.TID IN (
+                ot.ActiveAbility, ot.PassiveAbility,
+                ot.TalentTID1, ot.TalentTID2, ot.TalentTID3, ot.TalentTID4, ot.TalentTID5
+            )
+            WHERE ci.id = ?
+            AND ai.TID IS NOT NULL
+        ");
+        $stmt_abilities->execute([$id_character]);
+        $abilities = $stmt_abilities->fetchAll(PDO::FETCH_COLUMN);
+
+        if (!empty($abilities)) {
+            $placeholders = implode(',', array_fill(0, count($abilities), '?'));
+            $stmt_update = $pdo->prepare("
+                UPDATE progress_ability
+                SET Debloque = 0, niveau = 1
+                WHERE id_player = ? AND id_character = ? AND id_ability IN ($placeholders)
+            ");
+            $stmt_update->execute(array_merge([$id_player, $id_character], $abilities));
+        }
+
+        echo json_encode(['success' => true, 'message' => 'Officier reverrouillé.']);
+        exit;
     } elseif ($action === 'downgrade') {
         // --- RÉTROGRADATION (miroir de la branche "amélioration classique" ci-dessous) ---
         $tid           = isset($_POST['tid']) ? trim($_POST['tid']) : null;
@@ -204,7 +251,50 @@ try {
         $char_row = $stmt_id->fetch(PDO::FETCH_ASSOC);
         if (!$char_row) throw new Exception("Troupe introuvable.");
         $id_character = (int)$char_row['id'];
-        $is_hero = (trim($char_row['Class'] ?? '') === 'Hero');
+        $class_trim   = trim($char_row['Class'] ?? '');
+        $is_hero      = ($class_trim === 'Hero');
+        $is_proto     = ($class_trim === 'Proto');
+        $is_troop_or_spell = ($class_trim === 'Troupe' || $class_trim === 'Spell');
+
+        // 🔥 GARDE-FOU SERVEUR (absent jusqu'ici) : characters.UpgradeHouseLevel sur la ligne
+        // Niveau = target_level donne le bâtiment (Arsenal / Atelier de Proto-troupes / QG selon
+        // la classe) requis pour ATTEINDRE target_level — même convention "niveau CIBLE" que dans
+        // queries.php. Jusqu'ici, seul l'affichage (cadenas) signalait un niveau insuffisant ;
+        // rien côté serveur n'empêchait réellement l'amélioration (le JS ne vérifiait, lui aussi,
+        // que le plafond ABSOLU de l'unité, jamais ce palier de bâtiment).
+        $stmt_house_req = $pdo->prepare("SELECT UpgradeHouseLevel FROM characters WHERE TID = ? AND Niveau = ? LIMIT 1");
+        $stmt_house_req->execute([$tid, $target_level]);
+        $required_house_level = (int)($stmt_house_req->fetchColumn() ?: 0);
+
+        if ($required_house_level > 0) {
+            if ($is_hero) {
+                // Héros : gaté directement par le QG du joueur.
+                $stmt_qg = $pdo->prepare("SELECT qg FROM joueurs WHERE id_player = ?");
+                $stmt_qg->execute([$id_player]);
+                $player_house_level = (int)($stmt_qg->fetchColumn() ?: 1);
+                $house_label = "QG";
+            } elseif ($is_proto) {
+                // Proto-troupes : gatées par l'Atelier de Proto-troupes (id_building 29) réellement construit.
+                $stmt_bld = $pdo->prepare("SELECT MAX(niveau) FROM progress_building WHERE id_player = ? AND id_building = 29");
+                $stmt_bld->execute([$id_player]);
+                $player_house_level = (int)($stmt_bld->fetchColumn() ?: 0);
+                $house_label = "l'Atelier de Proto-troupes";
+            } elseif ($is_troop_or_spell) {
+                // Troupes / capacités de canonnière : gatées par l'Arsenal (id_building 12) réellement construit.
+                $stmt_bld = $pdo->prepare("SELECT MAX(niveau) FROM progress_building WHERE id_player = ? AND id_building = 12");
+                $stmt_bld->execute([$id_player]);
+                $player_house_level = (int)($stmt_bld->fetchColumn() ?: 0);
+                $house_label = "l'Arsenal";
+            } else {
+                // Classe sans bâtiment gating connu (ex. Officier) : pas de blocage.
+                $player_house_level = null;
+                $house_label = null;
+            }
+
+            if ($player_house_level !== null && $player_house_level < $required_house_level) {
+                throw new Exception("Niveau {$required_house_level} de {$house_label} requis pour améliorer cette unité.");
+            }
+        }
 
         // 2. Mise à jour ou Insertion dans progress_character
         $stmt_check = $pdo->prepare("SELECT 1 FROM progress_character WHERE id_player = ? AND id_character = ? LIMIT 1");

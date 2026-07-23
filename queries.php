@@ -21,7 +21,7 @@ $id_player = $_SESSION['player_id'] ?? null;
 
 if (!$id_player) {
     // Redirige vers la page de connexion si aucun joueur n'est identifié
-    header("Location: index.php");
+    header("Location: /");
     exit();
 }
 
@@ -564,11 +564,27 @@ function getFilteredUnits($pdo, $qg, $arsenal_max, $typeFilterSQL, $player_progr
         if ($niveau_joueur < $niveau_max_absolu) {
             try {
                 $stmt_next_cost = $pdo->prepare("
-                    SELECT UpgradeCost, UpgradeTimeH, XpGain, UpgradeHouseLevel
+                    SELECT UpgradeCost, UpgradeTimeH, XpGain
                     FROM characters WHERE TID = ? AND Niveau = ? LIMIT 1
                 ");
                 $stmt_next_cost->execute([$u['TID'], $niveau_joueur]);
                 $next_cost = $stmt_next_cost->fetch(PDO::FETCH_ASSOC) ?: null;
+
+                // 🔥 CORRECTIF décalage d'affichage : UpgradeHouseLevel suit la convention
+                // "niveau CIBLE" (la ligne Niveau=N donne le bâtiment requis pour ATTEINDRE N),
+                // contrairement à UpgradeCost/UpgradeTimeH/XpGain ci-dessus qui suivent la
+                // convention "niveau SOURCE" (coût pour PASSER de N à N+1). On ne peut donc pas
+                // lire les 4 colonnes sur la même ligne : UpgradeHouseLevel doit être lu sur
+                // Niveau = niveau_joueur + 1 (le niveau CIBLE), pas sur Niveau = niveau_joueur.
+                // Avant ce correctif, la carte affichait le bâtiment déjà validé pour le niveau
+                // ACTUEL (un cran trop bas — ex. "Atelier niveau 18" affiché alors que 19 est
+                // réellement requis pour passer de 28 à 29), sans qu'aucun garde-fou serveur ne
+                // s'en aperçoive (voir upgrade_character.php).
+                if ($next_cost !== null) {
+                    $stmt_house_req = $pdo->prepare("SELECT UpgradeHouseLevel FROM characters WHERE TID = ? AND Niveau = ? LIMIT 1");
+                    $stmt_house_req->execute([$u['TID'], $niveau_joueur + 1]);
+                    $next_cost['UpgradeHouseLevel'] = (int)($stmt_house_req->fetchColumn() ?: 0);
+                }
 
                 // Total restant (jusqu'au plafond ATTEIGNABLE avec l'Arsenal/Atelier/QG actuel
                 // uniquement) : inchangé, ne concerne que le récap "tout finir" de la sidebar.
@@ -674,14 +690,23 @@ function getBuildings($pdo, $id_player) {
 
 // Le Monument mystique (TID_BUILDING_CC, id_building = 32) est un bâtiment comme les autres :
 // son niveau se lit dans progress_building, exactement comme le Radar ou l'Arsenal.
+// Cette valeur ($monument_level) sert UNIQUEMENT au déblocage de l'onglet et aux stats
+// de la page Bâtiments > Support ; elle n'est jamais modifiée depuis l'onglet Monument mystique.
 // (progress_monument, plus bas, sert à tout autre chose : le nombre de bonus du Cercle des
 // Chefs choisis par le joueur, pas le niveau du monument lui-même.)
 $stmt_monument = $pdo->prepare("SELECT niveau FROM progress_building WHERE id_player = ? AND id_building = 32 LIMIT 1");
 $stmt_monument->execute([$id_player]);
 $monument_level = (int)($stmt_monument->fetchColumn() ?: 0);
 
+// Niveau MM déclaré par le joueur lui-même dans l'onglet "Monument mystique" (joueurs.MM).
+// Logique totalement séparée de $monument_level ci-dessus : c'est cette valeur-là qui est
+// affichée/modifiée dans l'onglet, et sauvegardée via upgrade_monument.php (type=level).
+$stmt_player_mm = $pdo->prepare("SELECT MM FROM joueurs WHERE id_player = ?");
+$stmt_player_mm->execute([$id_player]);
+$player_mm_level = (int)($stmt_player_mm->fetchColumn() ?: 0);
+
 // 2. Récupérer tous les bonus disponibles
-$stmt_bonuses = $pdo->prepare("SELECT id_bonus, t.$selected_lang AS TID, MaxCount, BoostAmount, MinBuildingLevel FROM cc_bonuses INNER JOIN texts t ON t.TID = cc_bonuses.TID ORDER BY MinBuildingLevel ASC, TID ASC");
+$stmt_bonuses = $pdo->prepare("SELECT id_bonus, t.$selected_lang AS TID, MaxCount, BoostAmount, MinBuildingLevel FROM cc_bonuses INNER JOIN texts t ON t.TID = cc_bonuses.TID ORDER BY Display ASC");
 $stmt_bonuses->execute();
 $cc_bonuses = $stmt_bonuses->fetchAll(PDO::FETCH_ASSOC);
 
@@ -766,6 +791,17 @@ $proto_list    = getFilteredUnits($pdo, $qg, $arsenal_current_max, "ci.Class = '
 $officers_list = getFilteredUnits($pdo, $qg, $arsenal_current_max, "ci.Class = 'Officier'", $character_progress, $house_levels);
 $capacanon_list = getFilteredUnits($pdo, $qg, $arsenal_current_max, "ci.Class = 'Spell'", $character_progress, $house_levels);
 
+// Rang (Lt = Lieutenant / Sgt = Sergent) de chaque officier, récupéré ici séparément
+// via une requête simple et directe -- volontairement découplé de la grosse jointure
+// de getFilteredUnits() pour fiabiliser la coloration de la barre de déblocage rapide
+// (renderOfficerQuickBar), indexé par id_character (characterid.ID).
+$officer_ranks_by_id = [];
+$stmt_officer_ranks = $pdo->prepare("SELECT ID, Type FROM characterid WHERE Class = 'Officier'");
+$stmt_officer_ranks->execute();
+while ($row = $stmt_officer_ranks->fetch(PDO::FETCH_ASSOC)) {
+    $officer_ranks_by_id[(int)$row['ID']] = trim($row['Type'] ?? '');
+}
+
 
 
 
@@ -814,7 +850,7 @@ try {
         JOIN engravingid ei ON e.TID = ei.TID
         LEFT JOIN texts t ON e.TID = t.TID
         GROUP BY ei.id, e.TID, ei.Category, ei.Type, ei.IconExportName, t.$selected_lang
-        ORDER BY ei.Type ASC, e.TID ASC
+        ORDER BY ei.Display ASC, e.TID ASC
     ");
     
     while ($row = $stmt_eng->fetch(PDO::FETCH_ASSOC)) {
@@ -865,6 +901,106 @@ try {
     error_log("Erreur radar (tribus) : " . $e->getMessage());
 }
 
+// ========================================================
+// 14. RECUPERATION DES STATUES ET DE LA PROGRESSION (onglet Profil > Statue)
+// ========================================================
+// Schéma réel :
+//   - statueid(id PK, TID, TID_BONUS, MinValue, MaxValue, ExportName)
+//     Chaque ligne = une combinaison unique "emplacement/palier" (TID) + "type de
+//     bonus" (TID_BONUS), avec la plage de valeurs (MinValue-MaxValue) possible.
+//   - progress_statue(id_player, id_slot, id_statue, boost)
+//     id_slot = numéro d'emplacement (1..ArtifactCapacity), même principe que
+//     progress_building.id_instance pour les bâtiments à plusieurs instances.
+//   - L'Atelier du sculpteur (TID_BUILDING_ARTIFACT_WORKSHOP, id_building = 2)
+//     conditionne le nombre d'emplacements disponibles : buildings.ArtifactCapacity
+//     (ex-"Colonne 14") au niveau atteint par le joueur.
+
+// Niveau réel de l'Atelier du sculpteur pour ce joueur.
+$stmt_sculpteur = $pdo->prepare("SELECT niveau FROM progress_building WHERE id_player = ? AND id_building = 2 LIMIT 1");
+$stmt_sculpteur->execute([$id_player]);
+$sculpteur_level = (int)($stmt_sculpteur->fetchColumn() ?: 0);
+
+// Nombre d'emplacements de statues débloqués à ce niveau (0 si l'atelier n'est
+// pas encore construit).
+$artifact_capacity = 0;
+if ($sculpteur_level > 0) {
+    $stmt_capacity = $pdo->prepare("SELECT ArtifactCapacity FROM buildings WHERE TID = 'TID_BUILDING_ARTIFACT_WORKSHOP' AND Niveau = ? LIMIT 1");
+    $stmt_capacity->execute([$sculpteur_level]);
+    $artifact_capacity = (int)($stmt_capacity->fetchColumn() ?: 0);
+}
+
+// Libellé "élément" selon le suffixe du TID (base = Vie, sinon Glace/Magma/Ténèbres).
+// Sert à distinguer, à l'affichage, les 4 variantes d'un même palier (ex: "Idole
+// (Vie)" vs "Idole (Glace)"), qui partagent le même libellé texts.$selected_lang.
+function getStatueElementLabel($tid) {
+    if (str_ends_with($tid, '_ICE'))  return 'Glace';
+    if (str_ends_with($tid, '_FIRE')) return 'Magma';
+    if (str_ends_with($tid, '_DARK')) return 'Ténèbres';
+    return 'Vie';
+}
+
+// Liste des emplacements/paliers distincts (TID), avec leur libellé localisé et
+// un ordre d'affichage basé sur le plus petit id (palier 1 avant palier 2, etc.).
+$statue_emplacements = [];
+try {
+    $stmt_empl = $pdo->prepare("
+        SELECT s.TID, MIN(s.id) AS ordre, IFNULL(t.$selected_lang, s.TID) AS nom
+        FROM statueid s
+        LEFT JOIN texts t ON t.TID = s.TID COLLATE utf8mb4_unicode_ci
+        GROUP BY s.TID, t.$selected_lang
+        ORDER BY ordre ASC
+    ");
+    $stmt_empl->execute();
+    while ($row = $stmt_empl->fetch(PDO::FETCH_ASSOC)) {
+        $statue_emplacements[] = [
+            'tid'     => $row['TID'],
+            'label'   => $row['nom'] . ' (' . getStatueElementLabel($row['TID']) . ')',
+            'element' => getStatueElementLabel($row['TID']),
+        ];
+    }
+} catch (PDOException $e) {
+    error_log("Erreur statue_emplacements : " . $e->getMessage());
+}
+
+// Options de bonus disponibles PAR emplacement (TID), pour peupler dynamiquement
+// le second menu déroulant (TID_BONUS) une fois l'emplacement choisi côté JS.
+$statue_options_by_tid = [];
+try {
+    $stmt_opt = $pdo->prepare("
+        SELECT s.id, s.TID, IFNULL(t.$selected_lang, s.TID_BONUS) AS nom_bonus, s.MinValue, s.MaxValue
+        FROM statueid s
+        LEFT JOIN texts t ON t.TID = s.TID_BONUS COLLATE utf8mb4_unicode_ci
+        ORDER BY s.id ASC
+    ");
+    $stmt_opt->execute();
+    while ($row = $stmt_opt->fetch(PDO::FETCH_ASSOC)) {
+        $statue_options_by_tid[$row['TID']][] = [
+            'id_statue' => (int)$row['id'],
+            'label'     => $row['nom_bonus'],
+            'min'       => (int)$row['MinValue'],
+            'max'       => (int)$row['MaxValue'],
+        ];
+    }
+} catch (PDOException $e) {
+    error_log("Erreur statue_options_by_tid : " . $e->getMessage());
+}
+
+// Progression déjà enregistrée par le joueur, indexée par id_slot.
+$player_statues = [];
+try {
+    $stmt_player_statues = $pdo->prepare("SELECT id_slot, id_statue, boost FROM progress_statue WHERE id_player = ?");
+    $stmt_player_statues->execute([$id_player]);
+    while ($row = $stmt_player_statues->fetch(PDO::FETCH_ASSOC)) {
+        $player_statues[(int)$row['id_slot']] = [
+            'id_statue' => (int)$row['id_statue'],
+            'boost'     => (int)$row['boost'],
+        ];
+    }
+} catch (PDOException $e) {
+    error_log("Erreur player_statues : " . $e->getMessage());
+}
+// ========================================================
+
 // --- CONDITIONS DE DÉBLOCAGE DES ONGLETS DE LA SIDEBAR ---
 // (radar_level, monument_level et graveur_level sont déjà calculés plus haut)
 $tab_tribus_unlocked        = ($radar_level >= 18);
@@ -872,6 +1008,7 @@ $tab_monument_unlocked      = ($monument_level > 0);
 $tab_gravures_unlocked      = ($graveur_level > 0);
 $tab_gravures_off_unlocked  = ($graveur_level > 0);
 $tab_gravures_def_unlocked  = ($graveur_level >= 2);
+$tab_statue_unlocked        = ($sculpteur_level > 0);
 
 // --- Déblocage des sous-onglets "Armée" -----------------------------------
 // Même logique que le filtre "ci.HQUnlock <= qg" déjà utilisé dans getFilteredUnits() :

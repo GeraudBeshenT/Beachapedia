@@ -556,88 +556,402 @@ document.addEventListener('click', function(e) {
     }
 });
 
-// Ouverture/fermeture du petit menu déroulant du profil (bas de la sidebar)
-window.toggleProfileMenu = function(event) {
-    event.stopPropagation();
-    const dropdown = document.getElementById('profileDropdown');
-    if (dropdown) dropdown.classList.toggle('open');
+/**
+ * Enregistre les 2 bonus de vitesse (Profil > Boost) en base via update_boosts.php.
+ * Purement un raccourci d'affichage côté site : ne modifie aucune valeur réelle du jeu.
+ */
+window.saveBoosts = function() {
+    const statusEl = document.getElementById('boost-save-status');
+    const buildingVal = document.getElementById('boost-building').value;
+    const armoryVal = document.getElementById('boost-armory').value;
+
+    statusEl.textContent = 'Enregistrement...';
+    statusEl.className = 'boost-save-status';
+
+    fetch('update_boosts.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ building_boost: buildingVal, armory_boost: armoryVal })
+    })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                document.getElementById('boost-building').value = data.building_boost;
+                document.getElementById('boost-armory').value = data.armory_boost;
+                statusEl.textContent = '✅ Enregistré';
+                statusEl.className = 'boost-save-status boost-save-ok';
+            } else {
+                statusEl.textContent = '❌ ' + (data.message || 'Erreur');
+                statusEl.className = 'boost-save-status boost-save-error';
+            }
+        })
+        .catch(() => {
+            statusEl.textContent = "❌ Erreur réseau";
+            statusEl.className = 'boost-save-status boost-save-error';
+        });
 };
 
-// Ferme le menu du profil si on clique ailleurs sur la page
-document.addEventListener('click', function(e) {
-    const dropdown = document.getElementById('profileDropdown');
-    if (dropdown && dropdown.classList.contains('open') && !e.target.closest('.profile-btn')) {
-        dropdown.classList.remove('open');
-    }
-});
-
 /**
- * Modifie le niveau du monument et rafraîchit à la volée le statut grisé/actif des bonus
+ * Prévisualisation à la volée (aucune sauvegarde) : grise/dégrise les bonus du
+ * Monument Mystique selon le niveau saisi dans le champ. La sauvegarde réelle
+ * ne se fait qu'au clic sur le bouton "Enregistrer" (voir saveMonumentLevel).
  */
 window.updateMonumentLevel = function(val) {
     const level = parseInt(val) || 0;
 
-    // 1. Envoi AJAX instantané
-    const formData = new FormData();
-    formData.append('type', 'level');
-    formData.append('id', 'MYSTIC_MONUMENT');
-    formData.append('value', level);
-
-    fetch('upgrade_monument.php', { method: 'POST', body: formData })
-    .then(response => response.json())
-    .then(data => {
-        if (!data.success) alert("Erreur lors de la sauvegarde du niveau : " + data.message);
-    })
-    .catch(err => console.error("Erreur réseau Monument:", err));
-
-    // 2. Gestion dynamique de l'affichage (grisé / déverrouillé)
-    const rows = document.querySelectorAll('.monument-bonus-table .mm-bonus-row');
+    const rows = document.querySelectorAll('.mm-bonus-list .mm-bonus-row');
     rows.forEach(row => {
         const requiredLvl = parseInt(row.getAttribute('data-min-mm-lvl')) || 0;
         const inputField = row.querySelector('.monument-qty-field');
-        
+
         if (level < requiredLvl) {
-            row.classList.add('bonus-locked');
+            row.classList.add('mm-bonus-row-locked');
             if (inputField) {
                 inputField.disabled = true;
-                if(inputField.value != 0) {
+                if (inputField.value != 0) {
                     inputField.value = 0;
-                    // Si la valeur est remise à 0 d'office, on applique la modif en BDD
-                    updateMonumentBonus(parseInt(inputField.getAttribute('onchange').match(/\d+/)[0]), 0);
+                    updateMonumentBonusTotal(inputField);
                 }
             }
         } else {
-            row.classList.remove('bonus-locked');
+            row.classList.remove('mm-bonus-row-locked');
             if (inputField) inputField.disabled = false;
         }
     });
 };
 
 /**
- * Modifie la quantité d'un bonus du monument à la volée
+ * Sauvegarde le niveau du Monument Mystique (onglet "Monument mystique") au clic
+ * sur "Enregistrer". Met à jour la colonne MM du joueur via upgrade_monument.php,
+ * indépendamment du niveau du bâtiment (Bâtiments > Support), qui lui gère
+ * uniquement le déblocage de l'onglet.
  */
-window.updateMonumentBonus = function(idBonus, value, maxCount) {
-    const val = parseInt(value);
-    if (val > maxCount) {
-        alert("Valeur maximale atteinte : " + maxCount);
-        return;
+window.saveMonumentLevel = function() {
+    const statusEl = document.getElementById('mm-level-save-status');
+    const levelInput = document.getElementById('mm_global_level');
+    const level = parseInt(levelInput.value) || 0;
+
+    if (statusEl) {
+        statusEl.textContent = 'Enregistrement...';
+        statusEl.className = 'mm-save-status';
     }
 
     const formData = new FormData();
-    formData.append('type', 'bonus');
-    formData.append('id', idBonus);
-    formData.append('value', val);
+    formData.append('type', 'level');
+    formData.append('id', 'MYSTIC_MONUMENT');
+    formData.append('value', level);
 
-    fetch('upgrade_monument.php', {
-        method: 'POST',
-        body: formData
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (!data.success) alert("Erreur : " + data.message);
-    })
-    .catch(err => console.error("Erreur fetch Monument :", err));
+    fetch('upgrade_monument.php', { method: 'POST', body: formData })
+        .then(response => response.json())
+        .then(data => {
+            if (!statusEl) return;
+            if (data.success) {
+                statusEl.textContent = '✅ Enregistré';
+                statusEl.className = 'mm-save-status mm-save-status-ok';
+            } else {
+                statusEl.textContent = '❌ ' + (data.message || 'Erreur');
+                statusEl.className = 'mm-save-status mm-save-status-error';
+            }
+        })
+        .catch(() => {
+            if (!statusEl) return;
+            statusEl.textContent = '❌ Erreur réseau';
+            statusEl.className = 'mm-save-status mm-save-status-error';
+        });
 };
+
+/**
+ * Recalcule à la volée le total affiché (BoostAmount x quantité) à côté du champ
+ * quantité d'un bonus du Monument Mystique, sans rien sauvegarder.
+ */
+window.updateMonumentBonusTotal = function(field) {
+    const idBonus = field.getAttribute('data-id-bonus');
+    const maxCount = parseInt(field.getAttribute('data-max-count')) || 0;
+    const boostAmount = parseFloat(field.getAttribute('data-boost-amount')) || 0;
+    let qty = parseInt(field.value) || 0;
+
+    if (qty > maxCount) {
+        qty = maxCount;
+        field.value = maxCount;
+    }
+
+    const totalEl = document.querySelector(`.mm-bonus-total[data-total-for="${idBonus}"]`);
+    if (totalEl) {
+        const total = boostAmount * qty;
+        const rounded = Math.round(total * 100) / 100;
+        totalEl.textContent = rounded.toLocaleString('fr-FR');
+    }
+};
+
+/**
+ * Sauvegarde en une fois toute la liste des bonus du Monument Mystique au clic
+ * sur "Enregistrer" : met à jour la table progress_monument pour chaque bonus.
+ */
+window.saveMonumentBonuses = function() {
+    const statusEl = document.getElementById('mm-bonus-save-status');
+    const fields = document.querySelectorAll('.mm-bonus-list .monument-qty-field:not(:disabled)');
+
+    if (statusEl) {
+        statusEl.textContent = 'Enregistrement...';
+        statusEl.className = 'mm-save-status';
+    }
+
+    const requests = Array.from(fields).map(field => {
+        const idBonus = parseInt(field.getAttribute('data-id-bonus'));
+        const maxCount = parseInt(field.getAttribute('data-max-count')) || 0;
+        let val = parseInt(field.value) || 0;
+
+        if (val > maxCount) {
+            val = maxCount;
+            field.value = maxCount;
+        }
+
+        const formData = new FormData();
+        formData.append('type', 'bonus');
+        formData.append('id', idBonus);
+        formData.append('value', val);
+
+        return fetch('upgrade_monument.php', { method: 'POST', body: formData })
+            .then(response => response.json());
+    });
+
+    Promise.all(requests)
+        .then(results => {
+            if (!statusEl) return;
+            const hasError = results.some(r => !r.success);
+            if (hasError) {
+                statusEl.textContent = '❌ Erreur lors de la sauvegarde';
+                statusEl.className = 'mm-save-status mm-save-status-error';
+            } else {
+                statusEl.textContent = '✅ Enregistré';
+                statusEl.className = 'mm-save-status mm-save-status-ok';
+            }
+        })
+        .catch(() => {
+            if (!statusEl) return;
+            statusEl.textContent = '❌ Erreur réseau';
+            statusEl.className = 'mm-save-status mm-save-status-error';
+        });
+};
+
+/* ==========================================================================
+   ONGLET PROFIL > STATUE
+   --------------------------------------------------------------------------
+   window.STATUE_OPTIONS_BY_TID (injecté par dashboard.php) :
+     { "TID_BUILDING_ARTIFACT1": [ {id_statue, label, min, max}, ... ], ... }
+   ========================================================================== */
+
+/**
+ * Peuple le menu déroulant "Bonus" d'une ligne à partir de l'emplacement (TID)
+ * choisi dans le premier menu. Réinitialise le champ valeur tant qu'aucun bonus
+ * n'est sélectionné.
+ */
+window.onStatueTidChange = function(selectEl) {
+    const slot = selectEl.getAttribute('data-slot');
+    const row = selectEl.closest('.statue-row');
+    const bonusSelect = row.querySelector('.statue-select-bonus');
+    const boostInput = row.querySelector('.statue-input-boost');
+    const tid = selectEl.value;
+
+    bonusSelect.innerHTML = '';
+
+    if (!tid) {
+        bonusSelect.innerHTML = "<option value=''>— Choisir un emplacement —</option>";
+        bonusSelect.disabled = true;
+        boostInput.value = '';
+        boostInput.disabled = true;
+        clearStatueSlot(slot, true);
+        return;
+    }
+
+    const options = (window.STATUE_OPTIONS_BY_TID && window.STATUE_OPTIONS_BY_TID[tid]) || [];
+    bonusSelect.innerHTML = "<option value=''>— Choisir un bonus —</option>";
+    options.forEach(opt => {
+        const optionEl = document.createElement('option');
+        optionEl.value = opt.id_statue;
+        optionEl.textContent = opt.label + ' (' + opt.min + ' - ' + opt.max + ')';
+        optionEl.setAttribute('data-min', opt.min);
+        optionEl.setAttribute('data-max', opt.max);
+        bonusSelect.appendChild(optionEl);
+    });
+    bonusSelect.disabled = false;
+
+    boostInput.value = '';
+    boostInput.disabled = true;
+};
+
+/**
+ * Une fois le bonus choisi : configure les bornes min/max du champ valeur,
+ * lui donne une valeur par défaut (le minimum) et sauvegarde immédiatement.
+ */
+window.onStatueBonusChange = function(selectEl) {
+    const slot = selectEl.getAttribute('data-slot');
+    const row = selectEl.closest('.statue-row');
+    const boostInput = row.querySelector('.statue-input-boost');
+    const idStatue = selectEl.value;
+
+    if (!idStatue) {
+        boostInput.value = '';
+        boostInput.disabled = true;
+        return;
+    }
+
+    const chosenOption = selectEl.options[selectEl.selectedIndex];
+    const min = parseInt(chosenOption.getAttribute('data-min')) || 0;
+    const max = parseInt(chosenOption.getAttribute('data-max')) || 0;
+
+    boostInput.min = min;
+    boostInput.max = max;
+    boostInput.disabled = false;
+    boostInput.value = min;
+
+    saveStatueSlot(slot);
+};
+
+/**
+ * Sauvegarde (upsert) le contenu actuel d'un emplacement : envoie id_statue +
+ * la valeur saisie (clampée côté client ET revérifiée côté serveur) à
+ * upgrade_statue.php.
+ */
+window.saveStatueSlot = function(slot) {
+    const row = document.querySelector(`.statue-row[data-slot='${slot}']`);
+    if (!row) return;
+
+    const bonusSelect = row.querySelector('.statue-select-bonus');
+    const boostInput = row.querySelector('.statue-input-boost');
+    const statusEl = document.getElementById('statue-save-status');
+
+    const idStatue = bonusSelect.value;
+    if (!idStatue) return;
+
+    let boost = parseInt(boostInput.value) || 0;
+    const min = parseInt(boostInput.min) || 0;
+    const max = parseInt(boostInput.max) || 0;
+    if (boost < min) boost = min;
+    if (boost > max) boost = max;
+    boostInput.value = boost;
+
+    if (statusEl) {
+        statusEl.textContent = 'Enregistrement...';
+        statusEl.className = 'mm-save-status';
+    }
+
+    const formData = new FormData();
+    formData.append('id_slot', slot);
+    formData.append('id_statue', idStatue);
+    formData.append('boost', boost);
+
+    fetch('upgrade_statue.php', { method: 'POST', body: formData })
+        .then(response => response.json())
+        .then(data => {
+            if (!statusEl) return;
+            if (data.success) {
+                statusEl.textContent = '✅ Enregistré';
+                statusEl.className = 'mm-save-status mm-save-status-ok';
+            } else {
+                statusEl.textContent = '❌ ' + (data.message || 'Erreur');
+                statusEl.className = 'mm-save-status mm-save-status-error';
+            }
+        })
+        .catch(() => {
+            if (!statusEl) return;
+            statusEl.textContent = '❌ Erreur réseau';
+            statusEl.className = 'mm-save-status mm-save-status-error';
+        });
+};
+
+/**
+ * Vide un emplacement (retire la statue) : remet les menus à zéro et supprime
+ * la ligne correspondante en base (progress_statue). silent = true : appelé en
+ * cascade depuis onStatueTidChange (pas besoin de re-remonter le message).
+ */
+window.clearStatueSlot = function(slot, silent) {
+    const row = document.querySelector(`.statue-row[data-slot='${slot}']`);
+    if (!row) return;
+
+    const bonusSelect = row.querySelector('.statue-select-bonus');
+    const boostInput = row.querySelector('.statue-input-boost');
+    const statusEl = document.getElementById('statue-save-status');
+
+    bonusSelect.value = '';
+    boostInput.value = '';
+    boostInput.disabled = true;
+
+    const formData = new FormData();
+    formData.append('id_slot', slot);
+    formData.append('id_statue', '');
+
+    fetch('upgrade_statue.php', { method: 'POST', body: formData })
+        .then(response => response.json())
+        .then(data => {
+            if (silent || !statusEl) return;
+            if (data.success) {
+                statusEl.textContent = '✅ Emplacement vidé';
+                statusEl.className = 'mm-save-status mm-save-status-ok';
+            } else {
+                statusEl.textContent = '❌ ' + (data.message || 'Erreur');
+                statusEl.className = 'mm-save-status mm-save-status-error';
+            }
+        })
+        .catch(() => {});
+};
+
+/**
+ * Au chargement de la page : pré-sélectionne, pour chaque emplacement déjà
+ * enregistré (valeur portée par l'input caché .statue-current-id-statue),
+ * l'emplacement (TID) et le bonus correspondants, puis affiche la valeur
+ * sauvegardée -- sans déclencher de sauvegarde (silent).
+ */
+window.initStatueTab = function() {
+    document.querySelectorAll('.statue-current-id-statue').forEach(hiddenInput => {
+        const idStatue = parseInt(hiddenInput.value) || 0;
+        if (!idStatue) return;
+
+        const slot = hiddenInput.getAttribute('data-slot');
+        const row = hiddenInput.closest('.statue-row');
+        const tidSelect = row.querySelector('.statue-select-tid');
+        const bonusSelect = row.querySelector('.statue-select-bonus');
+        const boostInput = row.querySelector('.statue-input-boost');
+
+        // Retrouve le TID de cette statue dans STATUE_OPTIONS_BY_TID
+        let foundTid = null;
+        let foundOption = null;
+        const optionsByTid = window.STATUE_OPTIONS_BY_TID || {};
+        for (const tid in optionsByTid) {
+            const match = optionsByTid[tid].find(o => o.id_statue == idStatue);
+            if (match) {
+                foundTid = tid;
+                foundOption = match;
+                break;
+            }
+        }
+        if (!foundTid) return;
+
+        tidSelect.value = foundTid;
+
+        const options = optionsByTid[foundTid] || [];
+        bonusSelect.innerHTML = "<option value=''>— Choisir un bonus —</option>";
+        options.forEach(opt => {
+            const optionEl = document.createElement('option');
+            optionEl.value = opt.id_statue;
+            optionEl.textContent = opt.label + ' (' + opt.min + ' - ' + opt.max + ')';
+            optionEl.setAttribute('data-min', opt.min);
+            optionEl.setAttribute('data-max', opt.max);
+            bonusSelect.appendChild(optionEl);
+        });
+        bonusSelect.disabled = false;
+        bonusSelect.value = idStatue;
+
+        boostInput.min = foundOption.min;
+        boostInput.max = foundOption.max;
+        boostInput.disabled = false;
+        // La valeur affichée reste celle déjà enregistrée (boost), pas le minimum.
+    });
+};
+
+document.addEventListener('DOMContentLoaded', function() {
+    window.initStatueTab();
+});
 
 window.triggerUpgradeCharacter = function(tid, safeId, maxLvl) {
     // 1. Récupérer l'élément d'affichage
@@ -722,43 +1036,90 @@ window.unlockTalent = function(button) {
     });
 };
 
-// Fonction pour améliorer une capacité d'officier via AJAX
-window.triggerUpgradeAbility = function(button, ab_id, safe_ab_id) {
+// 🔥 SUPPRIMÉ (correctif double-soumission) : window.triggerUpgradeAbility.
+// Cette fonction était appelée via un onclick="..." sur le bouton .btn-upgrade-ability
+// (functions.php), EN PLUS du gestionnaire délégué ci-dessous (document.body, sur la même
+// classe) : les deux tournaient sur un seul clic -> 2 confirmations, 2 requêtes serveur,
+// 2 incréments de niveau pour 1 clic. Sa logique utile (message de confirmation avec nom +
+// niveau cible) a été reprise dans le gestionnaire délégué plus bas.
+
+// Rétrogradation d'un talent d'officier (miroir de unlockTalent) : ne fonctionne que sur
+// le DERNIER talent débloqué, dans l'ordre inverse strict (contrôle final côté serveur).
+window.downgradeTalent = function(button) {
+    const idCharacter = button.getAttribute('data-character');
+    const idAbility = button.getAttribute('data-ability');
+    const talentTid = button.getAttribute('data-tid') || 'ce talent';
+
+    if (!confirm("Rétrograder le talent " + talentTid + " ? Il redeviendra verrouillé.")) return;
+
+    button.disabled = true;
+    const originalText = button.innerHTML;
+    button.innerHTML = "⏳";
+
+    fetch('upgrade_ability.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            action: 'lock_talent',
+            id_character: idCharacter,
+            id_ability: idAbility
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            location.reload();
+        } else {
+            alert("Erreur : " + data.message);
+            button.disabled = false;
+            button.innerHTML = originalText;
+        }
+    })
+    .catch(error => {
+        console.error("Erreur:", error);
+        alert("Une erreur est survenue.");
+        button.disabled = false;
+        button.innerHTML = originalText;
+    });
+};
+
+// Rétrogradation d'une capacité (active/passive d'officier, ou capacité de héros) via AJAX :
+// redescend la capacité d'un niveau (voir upgrade_ability.php, action=downgrade).
+window.triggerDowngradeAbility = function(button, ab_id, safe_ab_id) {
     const idCharacter = button.getAttribute("data-character");
     const idAbility = button.getAttribute("data-ability");
     const abilityTid = button.getAttribute("data-tid") || "cette capacité";
-    const nextLevel = button.getAttribute("data-next-level") || "?";
+    const currentLevel = parseInt(button.getAttribute("data-current-level")) || 0;
 
     if (!idCharacter || !idAbility) {
         console.error("IDs manquants sur le bouton !");
         return;
     }
 
-    // 1. Pop-up de validation
-    if (!confirm("Améliorer la capacité " + abilityTid + " au niveau " + nextLevel + " ?")) {
-        return; // L'utilisateur a annulé
+    if (currentLevel <= 1) return;
+
+    if (!confirm("Rétrograder la capacité " + abilityTid + " au niveau " + (currentLevel - 1) + " ?")) {
+        return;
     }
 
-    // 2. Feedback visuel de chargement
     button.disabled = true;
     const originalText = button.innerHTML;
     button.innerHTML = "⏳";
 
-    // 3. Appel AJAX
     fetch("upgrade_ability.php", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id_character: idCharacter, id_ability: idAbility })
+        body: JSON.stringify({
+            action: 'downgrade',
+            id_character: idCharacter,
+            id_ability: idAbility,
+            current_level: currentLevel
+        })
     })
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            // Affiche l'alerte de succès avec les noms dynamiques
-            alert(data.talent_nom + " pour " + data.troupe_nom + " débloqué !");
-
-            // 4. Rechargement de la page pour rafraîchir tous les compteurs et calculs PHP
-            window.location.reload();
-
+            location.reload();
         } else {
             alert("Erreur : " + data.message);
             button.disabled = false;
@@ -810,6 +1171,74 @@ window.triggerUpgradeTalent = function(button) {
         alert("Une erreur technique est survenue.");
     });
 };
+
+/* ==========================================================================
+   BARRE DE DÉBLOCAGE RAPIDE DES CHEFS DE BATAILLON
+   -------------------------------------------------------------------------
+   Ouvre une popup de confirmation (au lieu du confirm() natif utilisé par
+   l'ancien bouton "Débloquer l'Officier" sur la carte) qui propose les deux
+   états possibles : Débloqué / Reverrouillé.
+   ========================================================================== */
+let officerQuickModalTarget = null; // conserve l'élément .officer-quick-item cliqué
+
+window.openOfficerUnlockModal = function(el) {
+    officerQuickModalTarget = el;
+
+    const nom        = el.getAttribute('data-nom');
+    const icon       = el.getAttribute('data-icon');
+    const isUnlocked = el.getAttribute('data-unlocked') === '1';
+
+    document.getElementById('officer-unlock-modal-img').src = 'images/characters/Officier/' + icon + '.png';
+    document.getElementById('officer-unlock-modal-img').alt = nom;
+    document.getElementById('officer-unlock-modal-name').textContent = nom;
+    document.getElementById('officer-unlock-modal-status').textContent = isUnlocked
+        ? 'Actuellement débloqué.'
+        : 'Actuellement verrouillé.';
+
+    document.getElementById('officer-unlock-modal').style.display = 'block';
+};
+
+window.closeOfficerUnlockModal = function() {
+    document.getElementById('officer-unlock-modal').style.display = 'none';
+    officerQuickModalTarget = null;
+};
+
+/**
+ * unlock = true  -> action=unlock_officer (capacités Active+Passive niveau 1, Debloque=1)
+ * unlock = false -> action=lock_officer   (capacités Active+Passive niveau 0, Debloque=0)
+ */
+window.confirmOfficerUnlock = function(unlock) {
+    if (!officerQuickModalTarget) return;
+
+    const idCharacter = officerQuickModalTarget.getAttribute('data-id-character');
+    const nom = officerQuickModalTarget.getAttribute('data-nom');
+
+    const formData = new FormData();
+    formData.append('action', unlock ? 'unlock_officer' : 'lock_officer');
+    formData.append('id_character', idCharacter);
+
+    fetch('upgrade_character.php', { method: 'POST', body: formData })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                location.reload();
+            } else {
+                alert(data.message || 'Erreur lors de la mise à jour du chef.');
+            }
+        })
+        .catch(error => {
+            console.error('Erreur confirmOfficerUnlock:', error);
+            alert('Une erreur technique est survenue.');
+        });
+};
+
+// Fermeture de la modale en cliquant en dehors du contenu (comportement standard)
+window.addEventListener('click', function(event) {
+    const modal = document.getElementById('officer-unlock-modal');
+    if (modal && event.target === modal) {
+        closeOfficerUnlockModal();
+    }
+});
 
 window.unlockOfficer = function(idCharacter, tid) {
     const officerTid = tid || "ce chef de bataillon";
@@ -1066,8 +1495,8 @@ window.triggerUpgradeEngraving = function(idEngraving, safeId, maxLvl, nom, curr
         if (data.success) {
             const newLvl = data.new_level;
 
-            // 1. Mettre à jour l'affichage du niveau principal
-            displayElement.innerText = "Niveau " + newLvl + " / " + maxLvl;
+            // 1. Mettre à jour l'affichage de la qualité principale
+            displayElement.innerText = "Qualité " + newLvl + " / " + maxLvl;
 
             // 2. Changer le texte du bouton, et le désactiver si le niveau max est atteint
             const card = document.getElementById('card-' + safeId);
@@ -1126,6 +1555,42 @@ window.triggerUpgradeEngraving = function(idEngraving, safeId, maxLvl, nom, curr
     .catch(error => {
         console.error("Erreur réseau :", error);
         alert("Une erreur est survenue lors de la communication avec le serveur.");
+    });
+};
+
+// Bouton "Rétrograder" des cartes gravures : repasse la gravure au niveau précédent
+// (voir upgrade_engraving.php, action=downgrade). Même principe que les bâtiments/personnages :
+// on recharge la page pour refléter le niveau, le libellé du bouton et les coûts à jour.
+window.triggerDowngradeEngraving = function(idEngraving, safeId, niveauActuel) {
+    if (niveauActuel <= 0) return;
+
+    if (!confirm("Rétrograder cette gravure au niveau " + (niveauActuel - 1) + " ?")) {
+        return;
+    }
+
+    const btn = document.querySelector(`#card-${safeId} .btn-downgrade`);
+    if (btn) btn.disabled = true;
+
+    const formData = new FormData();
+    formData.append('action', 'downgrade');
+    formData.append('id_engraving', idEngraving);
+    formData.append('current_level', niveauActuel);
+
+    fetch('upgrade_engraving.php', { method: 'POST', body: formData })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            location.reload();
+        } else {
+            alert(data.message || "Erreur lors de la rétrogradation de la gravure.");
+            if (btn) btn.disabled = false;
+        }
+    })
+    .catch(err => {
+        if (err.name === 'AbortError') return;
+        console.error('Erreur triggerDowngradeEngraving:', err);
+        alert("Erreur réseau, réessaie.");
+        if (btn) btn.disabled = false;
     });
 };
 
@@ -1325,21 +1790,29 @@ document.addEventListener('DOMContentLoaded', () => {
     tenterAffichage();
 });
 
-// On lance la fonction quand la page commence à être prête
-document.addEventListener("DOMContentLoaded", chargerCoutsApercu);
-
 
 document.addEventListener("DOMContentLoaded", function() {
     document.body.addEventListener("click", function(e) {
         // On vérifie si l'élément cliqué est bien notre bouton d'amélioration
         if (e.target && e.target.classList.contains("btn-upgrade-ability")) {
             e.preventDefault();
-            
-            // --- AJOUT : Demande de confirmation ---
-            if (!confirm("Confirmez-vous l'amélioration de cette capacité ?")) {
+
+            // Garde-fou anti double-déclenchement : si le bouton est déjà désactivé (posé par
+            // un premier passage sur ce même clic — cas d'un gestionnaire enregistré 2x, ex.
+            // script.js chargé deux fois par erreur), on ignore silencieusement les appels
+            // suivants au lieu de rouvrir une 2e popup de confirmation.
+            if (e.target.disabled) {
                 return;
             }
-            // ----------------------------------------
+
+            // Message détaillé (nom de la capacité + niveau cible), repris de l'ancien
+            // gestionnaire en double supprimé plus haut — data-tid/data-next-level sont déjà
+            // fournis par functions.php sur ce bouton.
+            const abilityTid = e.target.getAttribute("data-tid") || "cette capacité";
+            const nextLevel  = e.target.getAttribute("data-next-level") || "?";
+            if (!confirm("Améliorer la capacité " + abilityTid + " au niveau " + nextLevel + " ?")) {
+                return;
+            }
 
             const button = e.target;
             const idCharacter = button.getAttribute("data-character");
@@ -1357,59 +1830,11 @@ document.addEventListener("DOMContentLoaded", function() {
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    // 1. Mise à jour texte Niv. X
-                    const rowOrCard = button.closest("tr") || button.closest(".talent-row");
-                    const levelDisplay = rowOrCard ? rowOrCard.querySelector(".ability-level-text") : null;
-                    if (levelDisplay) {
-                        levelDisplay.innerHTML = "Niv. " + data.new_level;
-                    }
-
-                    // 2. Gestion blocage du bouton (clic infini)
-                    if (data.new_level >= 15) {
-                        button.disabled = true;
-                        button.innerHTML = "MAX";
-                        button.style.background = "#7f8c8d";
-                    } else {
-                        button.disabled = false;
-                        button.innerHTML = "⬆"; 
-                        button.style.background = "#2ecc71";
-                        setTimeout(() => { button.style.background = "#1abc9c"; }, 1000);
-                    }
-
-                    // 3. Masquer la ligne acquise dans le tableau des coûts
-                    const currentTr = button.closest("tr");
-                    if (currentTr) {
-                        currentTr.style.transition = "opacity 0.5s";
-                        currentTr.style.opacity = "0";
-                        setTimeout(() => { currentTr.style.display = "none"; }, 500);
-                    }
-
-                    // 4. Mise à jour Sidebar (droite)
-                    const sidebarRow = document.querySelector(`[data-sidebar-character="${idCharacter}"]`);
-                    if (sidebarRow) {
-                        const scoreSpan = sidebarRow.querySelector(".sidebar-chef-score");
-                        if (scoreSpan) {
-                            let parts = scoreSpan.innerText.split("/");
-                            let current = parseInt(parts[0]) + 1;
-                            let max = parseInt(parts[1]);
-                            scoreSpan.innerText = `${current}/${max}`;
-                        }
-                    }
-
-                    // 5. Recalcul % global
-                    let progSum = 0;
-                    let maxSum = 0;
-                    document.querySelectorAll(".sidebar-chef-score").forEach(span => {
-                        let [c, m] = span.innerText.split("/").map(Number);
-                        progSum += (c > 1) ? (c - 1) : 0;
-                        maxSum += (m > 1) ? (m - 1) : 0;
-                    });
-
-                    const percentDiv = document.querySelector(".sidebar-global-percent");
-                    if (percentDiv && maxSum > 0) {
-                        percentDiv.innerText = Math.round((progSum / maxSum) * 100) + "%";
-                    }
-
+                    // On recharge la page pour repartir d'un état 100% à jour (niveau,
+                    // coût du palier suivant, sidebar, %, etc.) — même principe que pour
+                    // les talents et les gravures. La page se rouvre sur le même onglet
+                    // grâce au hash d'URL (voir showTab / window.onload dans dashboard.php).
+                    location.reload();
                 } else {
                     alert("Erreur : " + data.message);
                     button.disabled = false;
@@ -1449,6 +1874,13 @@ window.toggleHideMaxed = function(btn) {
         label.textContent = newText;
     }
 
+    // Mise à jour de l'icône : Show.png par défaut (éléments au max affichés),
+    // NoShow.png une fois qu'ils sont masqués.
+    const icon = btn.querySelector('.hide-maxed-icon');
+    if (icon) {
+        icon.src = isHidden ? 'images/icons/NoShow.png' : 'images/icons/Show.png';
+    }
+
     // Mémorisation dans localStorage
     try {
         localStorage.setItem('hideMaxed_' + tabContent.id, isHidden ? '1' : '0');
@@ -1470,6 +1902,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     if (label) {
                         label.textContent = label.textContent.replace('Masquer', 'Afficher');
                     }
+                    const icon = btn.querySelector('.hide-maxed-icon');
+                    if (icon) {
+                        icon.src = 'images/icons/NoShow.png';
+                    }
                 }
                 tab.querySelectorAll('.hide-maxed-container').forEach(container => {
                     container.classList.add('maxed-hidden');
@@ -1479,6 +1915,124 @@ document.addEventListener('DOMContentLoaded', function() {
             console.warn("Erreur restauration hideMaxed :", e);
         }
     });
+});
+
+// ==========================================================================
+// TRI DES CARTES (bâtiments, troupes) PAR XP GAGNÉ / TEMPS D'AMÉLIORATION
+// ==========================================================================
+// Réordonne les cartes DANS chaque conteneur .hide-maxed-container de l'onglet
+// (une grille par catégorie/QG), sans jamais mélanger les cartes ENTRE conteneurs.
+// Se base sur data-xp / data-time posés côté PHP (voir renderBuildingsTable /
+// renderUnitsTable). data-order sert à restaurer l'ordre d'origine ("Par défaut").
+// Valeur -1 (pas de niveau suivant, déjà au max) => toujours en fin de liste,
+// quel que soit le sens de tri choisi.
+window.sortCards = function(selectEl) {
+    const tabContent = selectEl.closest('.tab-content');
+    if (!tabContent) return;
+
+    const mode = selectEl.value; // 'default' | 'xp-desc' | 'xp-asc' | 'time-desc' | 'time-asc'
+    const containers = tabContent.querySelectorAll('.hide-maxed-container');
+
+    containers.forEach(container => {
+        const cards = Array.from(container.children);
+
+        if (mode === 'default') {
+            cards.sort((a, b) => {
+                return (parseInt(a.dataset.order, 10) || 0) - (parseInt(b.dataset.order, 10) || 0);
+            });
+        } else {
+            const [key, direction] = mode.split('-'); // key: 'xp' | 'time' ; direction: 'desc' | 'asc'
+            const attr = 'data-' + key;
+
+            cards.sort((a, b) => {
+                const va = parseFloat(a.getAttribute(attr));
+                const vb = parseFloat(b.getAttribute(attr));
+
+                // Cartes sans niveau suivant (-1) : toujours reléguées en fin de liste.
+                if (va < 0 && vb < 0) return 0;
+                if (va < 0) return 1;
+                if (vb < 0) return -1;
+
+                return direction === 'desc' ? (vb - va) : (va - vb);
+            });
+        }
+
+        cards.forEach(card => container.appendChild(card));
+    });
+
+    try {
+        localStorage.setItem('sortMode_' + tabContent.id, mode);
+    } catch (e) {
+        console.warn("localStorage indisponible :", e);
+    }
+};
+
+// Restaurer le tri mémorisé au chargement de la page
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.tab-content').forEach(tab => {
+        try {
+            const savedMode = localStorage.getItem('sortMode_' + tab.id);
+            if (!savedMode || savedMode === 'default') return;
+
+            const select = tab.querySelector('.sort-cards-select');
+            if (!select) return;
+
+            select.value = savedMode;
+            window.sortCards(select);
+        } catch (e) {
+            console.warn("Erreur restauration tri :", e);
+        }
+    });
+});
+
+// ============================================================================
+// ÉVÉNEMENTS EN COURS — compte à rebours (j-h-m-s) des cartes du event-panel
+// Chaque carte porte data-end="<timestamp en ms>" (voir renderEventPanel côté
+// PHP). On recalcule le texte de chaque .event-card-countdown toutes les
+// secondes ; si le temps restant tombe à 0, on marque l'événement "terminé"
+// (au prochain rechargement de la page, il ne sera de toute façon plus
+// remonté par getActiveEvents()).
+// ============================================================================
+function updateEventCountdowns() {
+    const cards = document.querySelectorAll('.event-card[data-end]');
+    if (!cards.length) return;
+
+    const now = Date.now();
+
+    cards.forEach(card => {
+        const end = parseInt(card.dataset.end, 10);
+        const countdownEl = card.querySelector('.event-card-countdown');
+        if (!countdownEl || isNaN(end)) return;
+
+        let remaining = end - now;
+
+        if (remaining <= 0) {
+            countdownEl.textContent = 'Terminé';
+            countdownEl.classList.add('event-ended');
+            countdownEl.classList.remove('event-ending-soon');
+            return;
+        }
+
+        const totalSeconds = Math.floor(remaining / 1000);
+        const days    = Math.floor(totalSeconds / 86400);
+        const hours   = Math.floor((totalSeconds % 86400) / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = totalSeconds % 60;
+
+        countdownEl.textContent = `${days}j ${hours}h ${minutes}m ${seconds}s`;
+
+        // Met en évidence les événements qui se terminent dans moins de 24h —
+        // uniquement pour les événements récurrents (data-recurring="1"). Les
+        // événements irréguliers (programmés dans tmob, sans recurring_start/end)
+        // gardent toujours l'affichage neutre, sur demande explicite.
+        const isRecurring = card.dataset.recurring === '1';
+        countdownEl.classList.toggle('event-ending-soon', isRecurring && remaining < 86400000);
+    });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    updateEventCountdowns();
+    setInterval(updateEventCountdowns, 1000);
 });
 
 // Log de confirmation de fin de chargement

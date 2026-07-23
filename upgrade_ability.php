@@ -98,6 +98,83 @@ try {
         exit;
     }
 
+    if ($action === 'lock_talent') {
+        // --- RÉTROGRADATION D'UN TALENT D'OFFICIER (miroir exact de unlock_talent) ---
+        // Comme pour le déblocage (1 -> 2 -> 3 -> 4 -> 5), la rétrogradation doit se faire
+        // dans l'ordre strict inverse (5 -> 4 -> 3 -> 2 -> 1) : on ne peut re-verrouiller que
+        // le DERNIER talent débloqué, jamais un talent "au milieu" de la chaîne.
+        $stmt_char = $pdo->prepare("
+            SELECT ci.TID AS char_tid, ot.TalentTID1, ot.TalentTID2, ot.TalentTID3, ot.TalentTID4, ot.TalentTID5
+            FROM characterid ci
+            LEFT JOIN officer_talents ot ON ot.TID = ci.TID
+            WHERE ci.id = ?
+        ");
+        $stmt_char->execute([$id_character]);
+        $char_row = $stmt_char->fetch(PDO::FETCH_ASSOC);
+        if (!$char_row) {
+            echo json_encode(['success' => false, 'message' => 'Personnage introuvable']);
+            exit;
+        }
+
+        $stmt_ab = $pdo->prepare("SELECT ai.TID, t.FR AS nom FROM abilitieid ai LEFT JOIN texts t ON t.TID = ai.TID WHERE ai.id = ?");
+        $stmt_ab->execute([$id_ability]);
+        $ab_row = $stmt_ab->fetch(PDO::FETCH_ASSOC);
+        if (!$ab_row) {
+            echo json_encode(['success' => false, 'message' => 'Capacité introuvable']);
+            exit;
+        }
+        $nom_du_talent = $ab_row['nom'] ?? 'Talent';
+
+        // Slot (1 à 5) correspondant à cette capacité pour CE personnage précis
+        $slot = 0;
+        for ($i = 1; $i <= 5; $i++) {
+            if (!empty($char_row["TalentTID$i"]) && $char_row["TalentTID$i"] === $ab_row['TID']) {
+                $slot = $i;
+                break;
+            }
+        }
+        if ($slot === 0) {
+            echo json_encode(['success' => false, 'message' => "Cette capacité n'appartient pas à ce personnage"]);
+            exit;
+        }
+
+        // Doit être actuellement débloqué
+        $stmt_current = $pdo->prepare("SELECT Debloque FROM progress_ability WHERE id_player = ? AND id_character = ? AND id_ability = ?");
+        $stmt_current->execute([$id_player, $id_character, $id_ability]);
+        if ((int)($stmt_current->fetchColumn() ?: 0) !== 1) {
+            echo json_encode(['success' => false, 'message' => "Ce talent n'est pas débloqué"]);
+            exit;
+        }
+
+        // Le talent suivant (s'il existe) doit déjà avoir été rétrogradé
+        if ($slot < 5) {
+            $stmt_next_id = $pdo->prepare("SELECT id FROM abilitieid WHERE TID = ? LIMIT 1");
+            $stmt_next_id->execute([$char_row["TalentTID" . ($slot + 1)]]);
+            $next_ability_id = (int)$stmt_next_id->fetchColumn();
+
+            if ($next_ability_id) {
+                $stmt_next_unlocked = $pdo->prepare("SELECT Debloque FROM progress_ability WHERE id_player = ? AND id_character = ? AND id_ability = ?");
+                $stmt_next_unlocked->execute([$id_player, $id_character, $next_ability_id]);
+                if ((int)($stmt_next_unlocked->fetchColumn() ?: 0) === 1) {
+                    echo json_encode(['success' => false, 'message' => "Vous devez d'abord rétrograder le talent suivant"]);
+                    exit;
+                }
+            }
+        }
+
+        // Re-verrouillage : Debloque -> 0, niveau remis au placeholder (1, comme un talent
+        // jamais débloqué)
+        $pdo->prepare("UPDATE progress_ability SET Debloque = 0, niveau = 1 WHERE id_player = ? AND id_character = ? AND id_ability = ?")
+            ->execute([$id_player, $id_character, $id_ability]);
+
+        echo json_encode([
+            'success' => true,
+            'talent_nom' => $nom_du_talent,
+            'message' => 'Talent rétrogradé'
+        ]);
+        exit;
+    }
+
     // 1. Récupération de la capacité + vérification qu'elle appartient bien à ce personnage
     //    - Capacité de Héros  : abilitieid.hero = id_character
     //    - Capacité d'Officier: liée via officer_talents.ActiveAbility/PassiveAbility -> characterid.TID
@@ -170,10 +247,50 @@ try {
         exit;
     }
 
+    if ($action === 'downgrade') {
+        // --- RÉTROGRADATION D'UNE CAPACITÉ (active/passive d'officier, ou capacité de héros) ---
+        // Miroir de l'amélioration classique ci-dessous : on redescend simplement niveau - 1,
+        // sans jamais reverrouiller (Debloque reste à 1 pour une capacité de héros déjà
+        // débloquée — seul le NIVEAU redescend, même choix que downgrade_character.php).
+        if ($current_ability_niveau <= 1) {
+            echo json_encode([
+                'success' => false,
+                'message' => 'Cette capacité est déjà à son niveau minimum.'
+            ]);
+            exit;
+        }
+
+        // Garde-fou anti-course/anti-triche : le niveau en base doit correspondre à ce que
+        // la card affichait au moment du clic.
+        $client_current_level = isset($input['current_level']) ? (int)$input['current_level'] : null;
+        if ($client_current_level !== null && $client_current_level !== $current_ability_niveau) {
+            echo json_encode([
+                'success' => false,
+                'message' => 'Le niveau a changé entre-temps, recharge la page et réessaie.'
+            ]);
+            exit;
+        }
+
+        $new_level = $current_ability_niveau - 1;
+
+        $pdo->prepare("UPDATE progress_ability SET niveau = ? WHERE id_player = ? AND id_character = ? AND id_ability = ?")
+            ->execute([$new_level, $id_player, $id_character, $id_ability]);
+
+        echo json_encode([
+            'success' => true,
+            'new_level' => $new_level,
+            'talent_nom' => $nom_du_talent,
+            'troupe_nom' => $nom_de_la_troupe,
+            'message' => 'Capacité rétrogradée'
+        ]);
+        exit;
+    }
+
     // 4. Palier suivant dans officer_abilities (même table pour héros et officiers)
-    // La ligne Niveau = N décrit les conditions pour ATTEINDRE le niveau N (comme pour le
-    // déblocage initial via HeroLevel du 1er palier). Pour passer de current_ability_niveau
-    // à new_level, il faut donc lire la ligne Niveau = new_level, pas Niveau = current_ability_niveau.
+    // Convention confirmée (voir muSumRemainingAbilityLevels dans functions.php) : la ligne
+    // Niveau = N décrit le coût du PASSAGE N -> N+1, donc pour passer de current_ability_niveau
+    // à new_level, il faut lire la ligne Niveau = current_ability_niveau (pas new_level : ça
+    // pointait sur le palier suivant, d'où le décalage de coût et le niveau 7 bloqué à tort).
     $new_level = $current_ability_niveau + 1;
 
     $stmt_next = $pdo->prepare("
@@ -182,7 +299,7 @@ try {
         WHERE TID = ? AND Niveau = ?
         LIMIT 1
     ");
-    $stmt_next->execute([$ability_tid, $new_level]);
+    $stmt_next->execute([$ability_tid, $current_ability_niveau]);
     $next = $stmt_next->fetch(PDO::FETCH_ASSOC);
 
     if (!$next || (float)($next['UpgradeCost'] ?? 0) <= 0) {
@@ -206,17 +323,36 @@ try {
     // (Optionnel : c'est ici qu'il faudrait vérifier/débiter UpgradeCost en UpgradeResource...)
 
     // 5. Mise à jour de la progression
+    // Garde-fou anti-course (même principe que la rétrogradation juste au-dessus) : le
+    // UPDATE ne s'applique QUE si le niveau en base est encore celui qu'on a lu au début
+    // ($current_ability_niveau). Sans ça, 2 requêtes quasi simultanées (double clic, double
+    // gestionnaire côté client, etc.) lisent toutes les deux le même niveau de départ et
+    // écrivent chacune +1 l'une après l'autre -> +2 pour 1 seul clic.
     if (!$prog) {
         $pdo->prepare("INSERT INTO progress_ability (id_player, id_character, id_ability, niveau) VALUES (?,?,?,?)")
             ->execute([$id_player, $id_character, $id_ability, $new_level]);
     } else {
-        $pdo->prepare("UPDATE progress_ability SET niveau = ? WHERE id_player = ? AND id_character = ? AND id_ability = ?")
-            ->execute([$new_level, $id_player, $id_character, $id_ability]);
+        $stmt_upd = $pdo->prepare("UPDATE progress_ability SET niveau = ? WHERE id_player = ? AND id_character = ? AND id_ability = ? AND niveau = ?");
+        $stmt_upd->execute([$new_level, $id_player, $id_character, $id_ability, $current_ability_niveau]);
+
+        if ($stmt_upd->rowCount() === 0) {
+            // Le niveau a changé entre-temps (requête concurrente déjà passée) : on ne
+            // double-incrémente pas, on renvoie juste l'état actuel sans erreur bruyante.
+            $stmt_recheck = $pdo->prepare("SELECT niveau FROM progress_ability WHERE id_player = ? AND id_character = ? AND id_ability = ?");
+            $stmt_recheck->execute([$id_player, $id_character, $id_ability]);
+            echo json_encode([
+                'success' => false,
+                'message' => 'Le niveau a changé entre-temps, recharge la page et réessaie.',
+                'current_level' => (int)($stmt_recheck->fetchColumn() ?: $current_ability_niveau)
+            ]);
+            exit;
+        }
     }
 
-    // Y a-t-il encore un VRAI palier après celui qu'on vient d'atteindre ?
+    // Y a-t-il encore un VRAI palier après celui qu'on vient d'atteindre ? La ligne
+    // Niveau = new_level décrit le coût du passage new_level -> new_level+1.
     $stmt_check_max = $pdo->prepare("SELECT UpgradeCost FROM officer_abilities WHERE TID = ? AND Niveau = ? LIMIT 1");
-    $stmt_check_max->execute([$ability_tid, $new_level + 1]);
+    $stmt_check_max->execute([$ability_tid, $new_level]);
     $next_row = $stmt_check_max->fetch(PDO::FETCH_ASSOC);
     $is_max = (!$next_row) || ((float)($next_row['UpgradeCost'] ?? 0) <= 0);
 

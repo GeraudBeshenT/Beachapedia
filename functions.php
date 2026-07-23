@@ -90,19 +90,51 @@ function renderDashboard($dashboard_categories, $dashboard_buildings) {
  */
 function renderHideMaxedToggle($label = 'les éléments') {
     echo "
-    <button type='button' class='btn-hide-maxed' data-label='" . htmlspecialchars($label) . "'>
-        <span class='hide-maxed-icon'>👁️</span>
+    <button type='button' class='btn-hide-maxed' data-label='" . htmlspecialchars($label) . "' onclick='toggleHideMaxed(this)'>
+        <img class='hide-maxed-icon' src='images/icons/Show.png' alt=''>
         <span class='hide-maxed-label'>Masquer " . htmlspecialchars($label) . " au max</span>
     </button>";
 }
 
+/**
+ * Sélecteur de tri réutilisable (bâtiments, troupes) : trie les cartes par XP gagné
+ * ou par temps d'amélioration du PROCHAIN niveau, croissant ou décroissant. Le JS
+ * (sortCards, voir script.js) réordonne les cartes DANS chaque conteneur
+ * .hide-maxed-container de l'onglet, en se basant sur les attributs data-xp /
+ * data-time posés sur chaque carte (voir renderBuildingsTable / renderUnitsTable).
+ * Une carte sans niveau suivant (déjà au max) porte data-xp="-1" / data-time="-1"
+ * et est toujours reléguée en fin de liste, quel que soit le sens choisi.
+ * L'état est mémorisé par onglet dans localStorage pour survivre au rechargement.
+ */
+function renderSortControls() {
+    echo "
+    <label class='sort-cards-control'>
+        <span class='sort-cards-label'>Trier par :</span>
+        <select class='sort-cards-select' onchange='sortCards(this)'>
+            <option value='default'>Par défaut</option>
+            <option value='xp-desc'>XP gagné (décroissant)</option>
+            <option value='xp-asc'>XP gagné (croissant)</option>
+            <option value='time-desc'>Temps d'amélioration (décroissant)</option>
+            <option value='time-asc'>Temps d'amélioration (croissant)</option>
+        </select>
+    </label>";
+}
+
 function renderBuildingsTable($buildings_list) {
+    echo "<div class='grid-toolbar'>";
     renderHideMaxedToggle('les bâtiments');
+    renderSortControls();
+    echo "</div>";
 
     foreach ($buildings_list as $category => $buildings) {
         if (empty($buildings)) continue;
 
         echo "<div class='buildings-grid hide-maxed-container'>";
+
+        // Compteur d'ordre d'affichage ORIGINAL (avant tout tri), remis à zéro à
+        // chaque grille/catégorie : permet à l'option "Par défaut" du tri de
+        // restaurer exactement l'ordre initial (voir sortCards dans script.js).
+        $order_index = 0;
 
         foreach ($buildings as $b) {
             // Sécurisation avec ?? pour éviter les Warnings
@@ -145,8 +177,18 @@ function renderBuildingsTable($buildings_list) {
             $niv_precedent = max(0, $niv - 1);
             $downgrade_disabled = ($niv <= 0) ? 'disabled' : '';
 
+            // Attributs de tri (voir renderSortControls / sortCards) : XP gagné et temps
+            // d'amélioration du PROCHAIN niveau. -1 = pas de niveau suivant (déjà au VRAI
+            // max), toujours relégué en fin de liste quel que soit le sens de tri choisi.
+            // 'XpGain' (et les colonnes BuildTime*) ne sont posées dans $b (voir
+            // getBuildingsDisplay) QUE si un niveau suivant existe, d'où ce test.
+            $xp_attr_bld = isset($b['XpGain']) && $b['XpGain'] !== null ? (int)$b['XpGain'] : -1;
+            $time_attr_bld = isset($b['XpGain']) && $b['XpGain'] !== null
+                ? ((int)($b['BuildTimeD'] ?? 0) * 86400 + (int)($b['BuildTimeH'] ?? 0) * 3600 + (int)($b['BuildTimeM'] ?? 0) * 60 + (int)($b['BuildTimeS'] ?? 0))
+                : -1;
+
             echo "
-            <div class='building-card' id='card-{$safe_id}' data-tid='{$tid}' data-instance='{$inst}' data-maxed='{$maxed_attr}'>
+            <div class='building-card' id='card-{$safe_id}' data-tid='{$tid}' data-instance='{$inst}' data-maxed='{$maxed_attr}' data-xp='{$xp_attr_bld}' data-time='{$time_attr_bld}' data-order='{$order_index}'>
 
                 <div class='building-card-info'>
                     <span class='building-card-name'>{$nom}</span>
@@ -164,11 +206,13 @@ function renderBuildingsTable($buildings_list) {
                     <span class='building-card-maxed'>Niveau max atteint</span>";
             } else {
                 $is_trap = (($b['Class'] ?? '') === 'Trap');
-                $temps_j     = (int)($b['BuildTimeD'] ?? 0);
-                $temps_h     = (int)($b['BuildTimeH'] ?? 0);
-                $temps_m     = (int)($b['BuildTimeM'] ?? 0);
-                $temps_txt   = trim(($temps_j > 0 ? "{$temps_j}j " : "") . ($temps_h > 0 ? "{$temps_h}h " : "") . ($temps_m > 0 ? "{$temps_m}m" : ""));
-                if ($temps_txt === '') $temps_txt = "3 sec";
+                $temps_seconds = (int)($b['BuildTimeD'] ?? 0) * 86400
+                                + (int)($b['BuildTimeH'] ?? 0) * 3600
+                                + (int)($b['BuildTimeM'] ?? 0) * 60
+                                + (int)($b['BuildTimeS'] ?? 0);
+                // Pièges/Mines s'améliorent via l'Arsenal -> bonus ArmoryBoost, tous les
+                // autres bâtiments (Économiques/Défensifs/Support) -> bonus BuildingBoost.
+                $temps_txt = formatSecondsToText($temps_seconds, $is_trap ? 'armory' : 'building');
 
                 // Condition informative "QG niveau X" (bâtiments classiques) / "Arsenal niveau X"
                 // (Pièges + Mines), affichée entre le titre et les coûts, avec un cadenas
@@ -247,6 +291,8 @@ function renderBuildingsTable($buildings_list) {
                     </button>
                 </div>
             </div>";
+
+            $order_index++;
         }
 
         echo "</div>";
@@ -402,6 +448,10 @@ function getOfficersCapaciteStats($pdo, $id_player, $officers_list) {
  * présents sur chaque instance.
  */
 function getBuildingsResourceSummary($buildings_display) {
+    global $pdo;
+    $id_player = $_SESSION['player_id'] ?? null;
+    $boosts = getPlayerBoosts($pdo, $id_player);
+
     $categories = [
         'Ressource' => 'Bâtiments Économiques',
         'Defense'   => 'Bâtiments Défensifs',
@@ -413,13 +463,20 @@ function getBuildingsResourceSummary($buildings_display) {
     $total = ['gold' => 0, 'wood' => 0, 'stone' => 0, 'iron' => 0, 'time_seconds' => 0];
 
     foreach ($categories as $cat => $label) {
+        // Pièges/Mines s'améliorent via l'Arsenal -> ArmoryBoost, le reste -> BuildingBoost.
+        // Appliqué ICI (avant la somme dans $total, qui mélange les catégories) car une fois
+        // les secondes de catégories différentes additionnées, on ne peut plus leur appliquer
+        // rétroactivement des pourcentages différents.
+        $pct = ($cat === 'Trap') ? $boosts['armory'] : $boosts['building'];
+        $factor = 1 - (max(0, min(99, $pct)) / 100);
+
         $s = ['gold' => 0, 'wood' => 0, 'stone' => 0, 'iron' => 0, 'time_seconds' => 0];
         foreach (($buildings_display[$cat] ?? []) as $b) {
             $s['gold']         += (int)($b['remaining_gold']         ?? 0);
             $s['wood']         += (int)($b['remaining_wood']         ?? 0);
             $s['stone']        += (int)($b['remaining_stone']        ?? 0);
             $s['iron']         += (int)($b['remaining_iron']         ?? 0);
-            $s['time_seconds'] += (int)($b['remaining_time_seconds'] ?? 0);
+            $s['time_seconds'] += (int)round((int)($b['remaining_time_seconds'] ?? 0) * $factor);
         }
         foreach ($s as $k => $v) $total[$k] += $v;
         $resume[$cat] = array_merge(['label' => $label], $s);
@@ -676,27 +733,17 @@ function renderBuildingResourceSummaryTable($resume_batiments) {
     echo "<div class='dash-section resource-summary'>";
     echo "<h3 class='resource-summary-title'>🏗️ Ressources pour tout finir au max</h3>";
     echo "<div class='resource-summary-table-wrap'>";
-    echo "<table class='resource-summary-table'>
-            <thead>
-                <tr>
-                    <th>Catégorie</th>
-                    <th><img src='images/icons/Gold.png' alt='Or' title='Or'></th>
-                    <th><img src='images/icons/Wood.png' alt='Bois' title='Bois'></th>
-                    <th><img src='images/icons/Stone.png' alt='Pierre' title='Pierre'></th>
-                    <th><img src='images/icons/Iron.png' alt='Fer' title='Fer'></th>
-                    <th>Temps</th>
-                </tr>
-            </thead><tbody>";
+    echo "<table class='resource-summary-table'><tbody>";
     foreach ($resume_batiments as $key => $row) {
         $is_total = ($key === 'TOTAL');
         $tr_class = $is_total ? " class='resource-summary-total'" : "";
         echo "<tr{$tr_class}>
                 <td>{$row['label']}</td>
-                <td>" . number_format($row['gold'], 0, ',', ' ') . "</td>
-                <td>" . number_format($row['wood'], 0, ',', ' ') . "</td>
-                <td>" . number_format($row['stone'], 0, ',', ' ') . "</td>
-                <td>" . number_format($row['iron'], 0, ',', ' ') . "</td>
-                <td>" . formatSecondsToText($row['time_seconds']) . "</td>
+                <td>" . number_format($row['gold'], 0, ',', ' ') . " <img src='images/icons/Gold.png' alt='Or' title='Or'></td>
+                <td>" . number_format($row['wood'], 0, ',', ' ') . " <img src='images/icons/Wood.png' alt='Bois' title='Bois'></td>
+                <td>" . number_format($row['stone'], 0, ',', ' ') . " <img src='images/icons/Stone.png' alt='Pierre' title='Pierre'></td>
+                <td>" . number_format($row['iron'], 0, ',', ' ') . " <img src='images/icons/Iron.png' alt='Fer' title='Fer'></td>
+                <td>" . formatSecondsToText($row['time_seconds'], 'none') . "</td>
               </tr>";
     }
     echo "</tbody></table></div>";
@@ -713,28 +760,17 @@ function renderArmyResourceSummaryTable($resume_armee) {
     echo "<div class='dash-section resource-summary'>";
     echo "<h3 class='resource-summary-title'>⚔️ Ressources pour tout finir au max</h3>";
     echo "<div class='resource-summary-table-wrap'>";
-    echo "<table class='resource-summary-table'>
-            <thead>
-                <tr>
-                    <th>Catégorie</th>
-                    <th><img src='images/icons/Gold.png' alt='Or' title='Or'></th>
-                    <th><img src='images/icons/Proto_Token.png' alt='Jetons Proto' title='Jetons Proto'></th>
-                    <th title=\"Capacités d'officier niveau 1 à 10\">📖 Manuels de terrain</th>
-                    <th title=\"Capacités d'officier niveau 11 à 13\">📰 Rapports d'activité</th>
-                    <th title=\"Capacités de héros\">🎖️ Jetons de héros</th>
-                    <th>Temps</th>
-                </tr>
-            </thead><tbody>";
+    echo "<table class='resource-summary-table'><tbody>";
     foreach ($resume_armee as $key => $row) {
         $is_total = ($key === 'TOTAL');
         $tr_class = $is_total ? " class='resource-summary-total'" : "";
         echo "<tr{$tr_class}>
                 <td>{$row['label']}</td>
-                <td>" . number_format($row['gold'], 0, ',', ' ') . "</td>
-                <td>" . number_format($row['proto'], 0, ',', ' ') . "</td>
-                <td>" . number_format($row['manuels'], 0, ',', ' ') . "</td>
-                <td>" . number_format($row['rapport'], 0, ',', ' ') . "</td>
-                <td>" . number_format($row['jetons_heros'], 0, ',', ' ') . "</td>
+                <td>" . number_format($row['gold'], 0, ',', ' ') . " <img src='images/icons/Gold.png' alt='Or' title='Or'></td>
+                <td>" . number_format($row['proto'], 0, ',', ' ') . " <img src='images/icons/Proto_Token.png' alt='Jetons Proto' title='Jetons Proto'></td>
+                <td>" . number_format($row['manuels'], 0, ',', ' ') . " <img src='images/AbilityUpgradeToken.png' alt='Manuels de terrain' title='Manuels de terrain'></td>
+                <td>" . number_format($row['rapport'], 0, ',', ' ') . " <img src='images/ExpCapToken.png' alt=\"Rapports d'activité\" title=\"Rapports d'activité\"></td>
+                <td>" . number_format($row['jetons_heros'], 0, ',', ' ') . " <img src='images/HeroToken.png' alt='Jetons de héros' title='Jetons de héros'></td>
                 <td>" . formatUnitsTime($row['time_h']) . "</td>
               </tr>";
     }
@@ -788,7 +824,10 @@ function renderStatsSidebar($title, $buildings_data, $stats) {
     echo "</ul>";
     
     if ($total_gold > 0 || $total_wood > 0 || $total_stone > 0 || $total_iron > 0 || $total_seconds > 0) {
-        $total_time_txt = formatSecondsToText($total_seconds);
+        // Cette liste est toujours homogène (une seule catégorie de bâtiments à la fois) :
+        // on peut donc déterminer le bonus à appliquer depuis le 1er élément.
+        $is_trap_list = !empty($buildings_data) && (($buildings_data[0]['Class'] ?? '') === 'Trap');
+        $total_time_txt = formatSecondsToText($total_seconds, $is_trap_list ? 'armory' : 'building');
         echo "<div class='sidebar-total-remaining'>
                 <div class='sidebar-total-title'>Total restant pour tout terminer</div>
                 <div class='sidebar-total-costs'>";
@@ -815,8 +854,18 @@ function renderStatsSidebar($title, $buildings_data, $stats) {
  * Convertit un temps d'amélioration exprimé en HEURES (ex: UpgradeTimeH, potentiellement décimal)
  * en texte lisible "Xj Yh Zm".
  */
-function formatUnitsTime($hours) {
-    $hours = (float)$hours;
+/**
+ * Convertit un temps d'amélioration exprimé en HEURES (ex: UpgradeTimeH, potentiellement décimal)
+ * en texte lisible "Xj Xh Xm". $category détermine quel bonus de vitesse du Profil
+ * (voir getPlayerBoosts) est appliqué avant formatage :
+ *   - 'armory'   (par défaut) : Pièges/Mines/Troupes/Proto/Héros/Officiers/Canonnière
+ *   - 'building' : bâtiments classiques (QG, Économiques/Défensifs/Support)
+ *   - 'none'     : aucune réduction (ex : Tribus)
+ * Uniquement un raccourci d'AFFICHAGE : n'affecte jamais les valeurs stockées/calculées
+ * en amont (voir applyTimeBoostHours).
+ */
+function formatUnitsTime($hours, $category = 'armory') {
+    $hours = applyTimeBoostHours((float)$hours, $category);
     if ($hours <= 0) return "3 sec";
 
     $total_minutes = (int)round($hours * 60);
@@ -836,9 +885,113 @@ function formatUnitsTime($hours) {
 /**
  * Même conversion que formatUnitsTime, mais à partir d'un nombre de SECONDES
  * (utilisé pour les temps de construction des bâtiments : BuildTimeD/H/M/S).
+ * $category : 'building' par défaut (voir formatUnitsTime).
  */
-function formatSecondsToText($seconds) {
-    return formatUnitsTime(((float)$seconds) / 3600);
+function formatSecondsToText($seconds, $category = 'building') {
+    return formatUnitsTime(((float)$seconds) / 3600, $category);
+}
+
+/**
+ * Bonus de vitesse (%) définis par le joueur dans Profil > Boost, stockés dans
+ * joueurs.BuildingBoost / joueurs.ArmoryBoost. Purement un raccourci d'AFFICHAGE : réduit
+ * le temps affiché sur le site, ne modifie JAMAIS BuildTimeD/H/M/S, UpgradeTimeH ni
+ * aucune autre valeur en base.
+ *   - BuildingBoost : bâtiments améliorés via le QG (Économiques / Défensifs / Support).
+ *   - ArmoryBoost   : tout ce qui s'améliore via l'Arsenal/Atelier : Pièges, Mines,
+ *     Troupes, Proto-troupes, Héros, Chefs de bataillon, Capacités de canonnière.
+ * Valeurs bornées 0-99 et mises en cache statiquement (1 seule requête par page).
+ */
+function getPlayerBoosts($pdo, $id_player) {
+    static $cache = [];
+    if (!$pdo || !$id_player) return ['building' => 0, 'armory' => 0];
+    if (isset($cache[$id_player])) return $cache[$id_player];
+
+    $stmt = $pdo->prepare("SELECT BuildingBoost, ArmoryBoost FROM joueurs WHERE id_player = ?");
+    $stmt->execute([$id_player]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+    $result = [
+        'building' => max(0, min(99, (float)($row['BuildingBoost'] ?? 0))),
+        'armory'   => max(0, min(99, (float)($row['ArmoryBoost']   ?? 0))),
+    ];
+    $cache[$id_player] = $result;
+    return $result;
+}
+
+/**
+ * Applique le bonus de vitesse correspondant à $category à une durée en HEURES.
+ * Voir formatUnitsTime / formatSecondsToText : c'est le seul endroit où le bonus est
+ * réellement appliqué, toujours au moment du formatage, jamais en amont.
+ */
+function applyTimeBoostHours($hours, $category) {
+    global $pdo;
+    $id_player = $_SESSION['player_id'] ?? null;
+    if ($category === 'none' || !$id_player || empty($pdo)) return $hours;
+
+    $boosts = getPlayerBoosts($pdo, $id_player);
+    $pct = ($category === 'armory') ? $boosts['armory'] : (($category === 'building') ? $boosts['building'] : 0);
+    if ($pct <= 0) return $hours;
+
+    return $hours * (1 - ($pct / 100));
+}
+
+/**
+ * Barre horizontale de déblocage rapide des Chefs de bataillon, affichée
+ * au-dessus du dashboard-wrapper de l'onglet "Chef de bataillon". Affiche
+ * TOUS les officiers (Class = 'Officier') en petites icônes (img-unit), au
+ * moins 6 par ligne. Un clic sur une icône ouvre une popup (voir modal
+ * #officer-unlock-modal dans dashboard.php + script.js) qui demande si le
+ * joueur a débloqué ou non ce chef :
+ *   - Débloqué  -> capacités Active + Passive au niveau 1, Debloque = 1
+ *     (upgrade_character.php, action=unlock_officer, déjà existant)
+ *   - Reverrouillé -> capacités Active + Passive au niveau 0, Debloque = 0
+ *     (upgrade_character.php, action=lock_officer, nouveau)
+ *
+ * $officers_list : même source que renderUnitsTable($officers_list, ...)
+ * (chaque entrée contient au moins id_character, TID, nom, IconExportName, Debloque).
+ * $officer_ranks_by_id : map [id_character => 'Lt'|'Sgt'] (voir queries.php), pour
+ * colorer le fond de chaque icône selon le rang.
+ */
+function renderOfficerQuickBar($officers_list, $officer_ranks_by_id = []) {
+    if (empty($officers_list)) return;
+
+    echo "<div class='officer-quickbar'>";
+    echo "<h3 class='officer-quickbar-title'>⚔️ Déblocage rapide des Chefs de bataillon</h3>";
+    echo "<div class='officer-quickbar-grid'>";
+
+    foreach ($officers_list as $o) {
+        $id_character = (int)($o['id_character'] ?? 0);
+        $tid          = htmlspecialchars($o['TID'] ?? '', ENT_QUOTES);
+        $nom          = htmlspecialchars($o['nom'] ?? $tid, ENT_QUOTES);
+        $icon         = htmlspecialchars($o['IconExportName'] ?? '', ENT_QUOTES);
+        $is_unlocked  = ((int)($o['Debloque'] ?? 0) === 1);
+        $status_class = $is_unlocked ? 'officer-quick-unlocked' : 'officer-quick-locked';
+        $status_badge = $is_unlocked ? '<img class="troop-card-condition-icon" src="images/icons/Unlock.png" >' : '<img class="troop-card-condition-icon" src="images/icons/Lock.png" >';
+
+        // Fond selon le rang : Lieutenant (Lt) = jaune, Sergent (Sgt) = bleu.
+        // Sur ces fonds clairs, le texte gris clair par défaut manque de contraste
+        // -> on bascule le nom en texte sombre quand un fond de rang est appliqué.
+        $rank = trim($officer_ranks_by_id[$id_character] ?? '');
+        $rank_bg = ($rank === 'Lt') ? '#FFC702' : (($rank === 'Sgt') ? '#5AC8FE' : null);
+        $rank_style = $rank_bg ? " style='background:{$rank_bg};'" : '';
+        $name_style = $rank_bg ? " style='color:#1a252f;'" : '';
+
+        echo "
+            <div class='officer-quick-item {$status_class}'{$rank_style}
+                 data-id-character='{$id_character}'
+                 data-nom='{$nom}'
+                 data-icon='{$icon}'
+                 data-unlocked='" . ($is_unlocked ? '1' : '0') . "'
+                 onclick='openOfficerUnlockModal(this)'>
+                <div class='officer-quick-img-wrapper'>
+                    <img class='img-unit img-unit-small' src='images/characters/Officier/{$icon}.png' alt='{$nom}'>
+                    <span class='officer-quick-badge'>{$status_badge}</span>
+                </div>
+                <span class='officer-quick-name'{$name_style}>{$nom}</span>
+            </div>";
+    }
+
+    echo "</div></div>";
 }
 
 /**
@@ -871,7 +1024,22 @@ function renderUnitsTable($data, $progress = [], $house_levels = [], $pdo = null
     $use_troop_design    = ($is_troop_list || $is_prototroop_list || $is_spell_list);
 
     $label_categorie = $is_prototroop_list ? 'les proto-troupes' : ($is_spell_list ? 'les capacités' : ($is_troop_list ? 'les troupes' : 'les unités'));
+
+    echo "<div class='grid-toolbar'>";
     renderHideMaxedToggle($label_categorie);
+    // Le tri par XP/temps n'a de sens que pour les troupes/proto-troupes (les
+    // capacités de canonnière n'ont pas de coût XP, voir tribsid) — pas pour les
+    // héros/officiers, qui ont leur propre design de carte (unit-card).
+    if ($is_troop_list || $is_prototroop_list) {
+        renderSortControls();
+    }
+    echo "</div>";
+
+    // Compteur d'ordre d'affichage ORIGINAL (avant tout tri) : permet à l'option
+    // "Par défaut" du tri de restaurer exactement l'ordre initial (voir sortCards
+    // dans script.js). Uniquement pertinent pour le design troupe (seul concerné
+    // par le tri), mais posé sur toutes les cartes sans effet de bord ailleurs.
+    $order_index = 0;
 
     echo $use_troop_design
         ? "<div class='troops-grid hide-maxed-container'>"
@@ -923,8 +1091,17 @@ function renderUnitsTable($data, $progress = [], $house_levels = [], $pdo = null
             $house_label = $is_prototroop ? "Atelier de Proto-troupes" : "Arsenal";
             $house_ok    = ($required_house_level <= $player_house_level);
 
+            // Attributs de tri (voir renderSortControls / sortCards) : XP gagné et temps
+            // d'amélioration du PROCHAIN niveau (UpgradeTimeH converti en secondes pour
+            // rester comparable au data-time des bâtiments). -1 = pas de niveau suivant
+            // (déjà au VRAI max), toujours relégué en fin de liste quel que soit le sens.
+            $xp_attr_trp = (!empty($u['next_cost']) && isset($u['next_cost']['XpGain']) && $u['next_cost']['XpGain'] !== null)
+                ? (int)$u['next_cost']['XpGain'] : -1;
+            $time_attr_trp = (!empty($u['next_cost']) && isset($u['next_cost']['UpgradeTimeH']) && $u['next_cost']['UpgradeTimeH'] !== null)
+                ? (int)round(((float)$u['next_cost']['UpgradeTimeH']) * 3600) : -1;
+
             echo "
-            <div class='troop-card' id='card-{$safe_id_trp}' data-tid='{$tid}' data-maxed='{$maxed_attr}'>
+            <div class='troop-card' id='card-{$safe_id_trp}' data-tid='{$tid}' data-maxed='{$maxed_attr}' data-xp='{$xp_attr_trp}' data-time='{$time_attr_trp}' data-order='{$order_index}'>
                 <div class='troop-card-info'>
                     <span class='troop-card-name'>{$nom}</span>
                     <span class='troop-card-level' id='lvl-{$safe_id_trp}'>Niveau {$current_lvl} / {$max}</span>
@@ -991,7 +1168,8 @@ function renderUnitsTable($data, $progress = [], $house_levels = [], $pdo = null
                 // signalé par le cadenas fermé sur la condition ci-dessus).
                 echo "
                 <div class='troop-card-action'>
-                    <button class='btn-upgrade' onclick=\"triggerUpgradeCharacter('{$tid}', '{$safe_id_trp}', {$niveau_max_absolu_trp})\">
+                    <button class='btn-upgrade" . (!$house_ok ? " btn-locked" : "") . "' " . (!$house_ok ? "disabled" : "") . "
+                            onclick=\"triggerUpgradeCharacter('{$tid}', '{$safe_id_trp}', {$niveau_max_absolu_trp})\">
                         <span class='btn-text'>Améliorer</span>
                     </button>
                     {$btn_downgrade_trp}
@@ -999,6 +1177,7 @@ function renderUnitsTable($data, $progress = [], $house_levels = [], $pdo = null
             </div>";
             }
 
+            $order_index++;
             continue;
         }
 
@@ -1161,24 +1340,63 @@ function renderUnitsTable($data, $progress = [], $house_levels = [], $pdo = null
         $next_talent_nom = $next_talent['nom'] ?: $next_talent['TID'];
     }
 
+    // 2bis. Trouver le DERNIER talent débloqué (le seul qu'on puisse rétrograder, ordre
+    // inverse strict — miroir du "prochain talent" ci-dessus, ORDER BY ... DESC)
+    $last_talent_id = null;
+    $last_talent_nom = null;
+    $stmt_last = $pdo->prepare("
+        SELECT ai.id, ai.TID, t.FR AS nom
+        FROM characterid ci
+        INNER JOIN officer_talents ot ON ot.TID = ci.TID
+        INNER JOIN abilitieid ai ON ai.TID IN (ot.TalentTID1, ot.TalentTID2, ot.TalentTID3, ot.TalentTID4, ot.TalentTID5)
+        LEFT JOIN texts t ON t.TID = ai.TID
+        INNER JOIN progress_ability pa ON pa.id_player = ? AND pa.id_character = ? AND pa.id_ability = ai.id
+        WHERE ci.id = ? AND ai.TID IS NOT NULL AND pa.Debloque = 1
+        ORDER BY
+            CASE ai.TID
+                WHEN ot.TalentTID1 THEN 1
+                WHEN ot.TalentTID2 THEN 2
+                WHEN ot.TalentTID3 THEN 3
+                WHEN ot.TalentTID4 THEN 4
+                WHEN ot.TalentTID5 THEN 5
+            END DESC
+        LIMIT 1
+    ");
+    $stmt_last->execute([$id_player, $u['id_character'], $u['id_character']]);
+    $last_talent = $stmt_last->fetch(PDO::FETCH_ASSOC);
+    if ($last_talent) {
+        $last_talent_id = $last_talent['id'];
+        $last_talent_nom = $last_talent['nom'] ?: $last_talent['TID'];
+    }
+
     // 3. Affichage
     echo "<div class='officer-talent' style='text-align: center; margin: 10px 0;'>
             <img src='images/icons/{$imageFile}' style='width: 80px;' alt='Talents débloqués: {$talents_debloques}'>
             <div class='talent-status'>
                 <p class='talent-count'>Talents débloqués : {$talents_debloques}/5</p>";
 
-    // 🔥 Bouton "Débloquer talent suivant" (seulement si un talent est disponible)
+    // 🔥 Boutons "Débloquer talent suivant" / "Rétrograder", côte à côte
+    echo "<div class='talent-actions'>";
     if ($next_talent_id && $talents_debloques < 5) {
         $next_talent_nom_esc = htmlspecialchars($next_talent_nom, ENT_QUOTES);
         echo "<button class='btn-unlock-talent' data-character='{$u['id_character']}' data-ability='{$next_talent_id}' data-tid='{$next_talent_nom_esc}'
-                      onclick='unlockTalent(this)' style='margin-top: 8px; padding: 6px 12px;'>
+                      onclick='unlockTalent(this)'>
                   Débloquer talent suivant
               </button>";
     } elseif ($talents_debloques >= 5) {
-        echo "<p style='color: #2ecc71; margin-top: 8px;'>Tous les talents débloqués !</p>";
+        echo "<p style='color: #2ecc71; margin: 0;'>Tous les talents débloqués !</p>";
     }
+    if ($last_talent_id) {
+        $last_talent_nom_esc = htmlspecialchars($last_talent_nom, ENT_QUOTES);
+        echo "<button class='btn-downgrade' data-character='{$u['id_character']}' data-ability='{$last_talent_id}' data-tid='{$last_talent_nom_esc}'
+                      onclick='downgradeTalent(this)'>
+                  Rétrograder
+              </button>";
+    }
+    echo "</div>";
 
     echo "</div></div>";
+
 
                 // Rendu des Capacités (Active / Passive) - SANS les talents
                 echo "<div class='officer-ability'>";
@@ -1264,7 +1482,7 @@ function renderOfficerAbilityRow($talent, $id_character, $current_lvl, $type_lab
     // texte "Niveau X" ; tout le calcul du prochain palier / coût reste basé sur $ab_lvl (réel).
     $ab_lvl_display = (int)($talent['display_level'] ?? $ab_lvl);
 
-    // 🔒 Capacité de héros pas encore débloquée (Debloque = 0 en base, voir progress_ability).
+    // <img class="troop-card-condition-icon" src="images/icons/Lock.png"> Capacité de héros pas encore débloquée (Debloque = 0 en base, voir progress_ability).
     // N'affecte que les entrées qui exposent explicitement ce flag (capacités de héros) ; les
     // officiers, qui n'en ont pas, gardent leur comportement existant.
     $is_locked = isset($talent['debloque']) && (int)$talent['debloque'] === 0;
@@ -1298,12 +1516,13 @@ function renderOfficerAbilityRow($talent, $id_character, $current_lvl, $type_lab
             </div>";
     }
 
-    // Capacité débloquée : la ligne officer_abilities dont Niveau = $next_lvl décrit les
-    // conditions (HeroLevel, coût) pour ATTEINDRE ce niveau — même convention corrigée que
-    // upgrade_ability.php (WHERE Niveau = $new_level, pas $current_ability_niveau).
+    // Capacité débloquée : la ligne officer_abilities dont Niveau = $ab_lvl (niveau ACTUEL)
+    // décrit les conditions (HeroLevel, coût) du PASSAGE $ab_lvl -> $next_lvl — même
+    // convention que muSumRemainingAbilityLevels() plus haut dans ce fichier, et même
+    // correctif appliqué côté serveur dans upgrade_ability.php.
     $next_lvl_data = null;
     foreach ($talent['levels'] ?? [] as $row) {
-        if ((int)$row['Niveau'] === $next_lvl) {
+        if ((int)$row['Niveau'] === $ab_lvl) {
             $next_lvl_data = $row;
             break;
         }
@@ -1334,7 +1553,15 @@ function renderOfficerAbilityRow($talent, $id_character, $current_lvl, $type_lab
 
                     if ($can_up) {
                         $ab_nom_esc = htmlspecialchars(addslashes($talent['nom'] ?? $ab_tid), ENT_QUOTES);
-                        $html .= "<button class='btn-upgrade-ability' data-character='{$id_character}' data-ability='{$ab_id}' data-tid='{$ab_nom_esc}' data-next-level='{$next_lvl}' onclick=\"triggerUpgradeAbility(this, '{$ab_id}', '{$safe_ab_id}')\">Améliorer</button>";
+                        // 🔥 CORRECTIF double-soumission : PLUS d'onclick="triggerUpgradeAbility(...)" ici.
+                        // Ce bouton porte la classe .btn-upgrade-ability, déjà interceptée par un
+                        // gestionnaire délégué (document.body, voir script.js) qui gère la confirmation,
+                        // l'appel serveur ET la mise à jour de l'affichage sans reload. Garder l'onclick
+                        // EN PLUS de cette classe faisait tourner les DEUX gestionnaires sur un seul clic
+                        // (2 confirmations, 2 requêtes serveur, 2 incréments de niveau pour 1 clic).
+                        // data-tid et data-next-level restent lus par le gestionnaire délégué pour
+                        // afficher un message de confirmation précis (nom + niveau cible).
+                        $html .= "<button class='btn-upgrade-ability' data-character='{$id_character}' data-ability='{$ab_id}' data-tid='{$ab_nom_esc}' data-next-level='{$next_lvl}'>Améliorer</button>";
                     } else {
                         // Même style que la capacité verrouillée (Debloque = 0) plus haut : texte
                         // rouge, pas de bouton grisé, dès que le palier suivant n'est pas encore
@@ -1343,6 +1570,12 @@ function renderOfficerAbilityRow($talent, $id_character, $current_lvl, $type_lab
                     }
                 } else {
                     $html .= "<span class='officer-ability-locked' style='color: #e74c3c; font-weight: bold;'>Niveau max</span>";
+                }
+                // Bouton "Rétrograder" : redescend d'un niveau, indépendamment du fait que la
+                // capacité soit ou non au max — seul le niveau RÉEL ($ab_lvl) compte ici.
+                if ($ab_lvl > 1) {
+                    $ab_nom_esc = htmlspecialchars(addslashes($talent['nom'] ?? $ab_tid), ENT_QUOTES);
+                    $html .= "<button class='btn-downgrade' data-character='{$id_character}' data-ability='{$ab_id}' data-tid='{$ab_nom_esc}' data-current-level='{$ab_lvl}' onclick=\"triggerDowngradeAbility(this, '{$ab_id}', '{$safe_ab_id}')\">Rétrograder</button>";
                 }
     $html .= "</div>
         </div>";
@@ -1575,66 +1808,135 @@ function renderHeroesStatsSidebar($heros_list) {
  */
 function renderMysticMonument($current_mm_level, $all_bonuses, $user_bonuses) {
     echo "
-    <div class='monument-section-wrapper' style='font-family: \"Montserrat\", sans-serif; max-width: 1200px; margin: 0 auto;'>
-        <h2 style='font-family: \"Bangers\", cursive; font-size: 2.2em; color: #f1c40f; margin-bottom: 20px; letter-spacing: 1px;'>🗿 Monument Mystique</h2>
-        
-        <div class='monument-top-card' style='background: #34495e; padding: 20px; border-radius: 8px; margin-bottom: 25px; display: flex; align-items: center; gap: 25px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.05);'>
-            <div style='background: rgba(0,0,0,0.2); padding: 10px; border-radius: 8px; display: flex; align-items: center; justify-content: center;'>
-                <img src='images/mystic_monument.png' alt='Monument Mystique' style='width: 90px; height: 90px; object-fit: contain;' onerror=\"this.src='images/default-building.png'\">
+    <div class='mm-panel'>
+        <h2 class='mm-title'>🗿 Monument Mystique</h2>
+
+        <div class='mm-top-card'>
+            <div class='mm-top-card-visual'>
+                <img src='images/mystic_monument.png' alt='Monument Mystique' class='mm-top-card-img' onerror=\"this.src='images/default-building.png'\">
             </div>
-            <div style='flex-grow: 1;'>
-                <label for='mm_global_level' style='display: block; font-weight: 600; font-size: 1.15em; margin-bottom: 8px; color: #ecf0f1;'>Quel est votre niveau de monument ?</label>
-                <div style='display: flex; align-items: center; gap: 12px;'>
-                    <input type='number' id='mm_global_level' value='{$current_mm_level}' min='0' max='800' 
-                           style='padding: 10px; border-radius: 4px; border: 2px solid #2c3e50; background: #2c3e50; color: #fff; font-size: 1.1em; width: 110px; font-weight: bold; text-align: center;'
-                           onchange='updateMonumentLevel(this.value)'>
-                    <span style='color: #bdc3c7; font-size: 0.95em;'>(Sauvegarde instantanée — Max 800)</span>
+            <div class='mm-top-card-body'>
+                <label for='mm_global_level' class='mm-top-card-label'>Quel est votre niveau de monument ?</label>
+                <div class='mm-top-card-controls'>
+                    <input type='number' id='mm_global_level' value='{$current_mm_level}' min='0' max='800'
+                           class='mm-level-input'
+                           oninput='updateMonumentLevel(this.value)'>
+                    <button type='button' class='mm-save-btn' onclick='saveMonumentLevel()'>Enregistrer</button>
+                    <span id='mm-level-save-status' class='mm-save-status'></span>
                 </div>
             </div>
         </div>
 
-        <table class='monument-bonus-table' style='width: 100%; border-collapse: collapse; background: #34495e; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.2);'>
-            <thead>
-                <tr style='background: #e67e22; color: white;'>
-                    <th style='padding: 14px; text-align: left; font-size: 0.95em;'>Bonus</th>
-                    <th style='padding: 14px; text-align: center; font-size: 0.95em; width: 180px;'>Niveau MM Requis</th>
-                    <th style='padding: 14px; text-align: right; font-size: 0.95em; width: 180px;'>Nombre de bonus</th>
-                </tr>
-            </thead>
-            <tbody>";
+        <div class='mm-bonus-list'>";
 
     // ICI : La seule et unique boucle pour afficher les lignes
     foreach ($all_bonuses as $bonus) {
         $id_b = (int)$bonus['id_bonus'];
         $min_lvl = (int)$bonus['MinBuildingLevel'];
         $max_count = isset($bonus['MaxCount']) ? (int)$bonus['MaxCount'] : 0;
+        $boost_amount = isset($bonus['BoostAmount']) ? (float)$bonus['BoostAmount'] : 0;
         $display_name = !empty($bonus['FR']) ? $bonus['FR'] : $bonus['TID'];
         $qty = $user_bonuses[$id_b] ?? 0;
-        
+        $total = $boost_amount * $qty;
+        $total_display = (fmod($total, 1) == 0) ? number_format($total, 0, ',', ' ') : number_format($total, 2, ',', ' ');
+
         $is_locked = ($current_mm_level < $min_lvl);
-        $row_class = $is_locked ? "mm-bonus-row bonus-locked" : "mm-bonus-row";
+        $row_class = $is_locked ? "mm-bonus-row mm-bonus-row-locked" : "mm-bonus-row";
         $disabled_attr = $is_locked ? "disabled" : "";
 
         echo "
-                <tr class='{$row_class}' data-min-mm-lvl='{$min_lvl}' style='border-bottom: 1px solid rgba(255,255,255,0.05); transition: background-color 0.2s ease, opacity 0.3s ease;'>
-                    <td style='padding: 14px; font-weight: 600; color: #fff;'>✨ " . htmlspecialchars($display_name) . "</td>
-                    <td style='padding: 14px; text-align: center; font-weight: bold;' class='mm-req-cell'>Niveau {$min_lvl}</td>
-                    <td style='padding: 14px; text-align: right;'>
-                        <input type='number' 
-                               value='{$qty}' 
-                               min='0' 
-                               max='{$max_count}' 
-                               class='number monument-qty-field'
-                               {$disabled_attr}
-                               onchange='updateMonumentBonus({$id_b}, this.value, {$max_count})'
-                               style='padding: 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.1); background: #2c3e50; color: #fff; width: 90px; text-align: right; font-weight: bold;'>
-                    </td>
-                </tr>";
+            <div class='{$row_class}' data-min-mm-lvl='{$min_lvl}'>
+                <span class='mm-bonus-name'>" . htmlspecialchars($display_name) . "</span>
+                <input type='number'
+                       value='{$qty}'
+                       min='0'
+                       max='{$max_count}'
+                       class='mm-qty-field monument-qty-field'
+                       data-id-bonus='{$id_b}'
+                       data-max-count='{$max_count}'
+                       data-boost-amount='{$boost_amount}'
+                       oninput='updateMonumentBonusTotal(this)'
+                       {$disabled_attr}>
+                <span class='mm-bonus-total' data-total-for='{$id_b}'>+{$total_display} %</span>
+            </div>";
     }
 
     echo "
-            </tbody>
-        </table>
+        </div>
+
+        <div class='mm-bonus-save-row'>
+            <button type='button' class='mm-save-btn' onclick='saveMonumentBonuses()'>Enregistrer</button>
+            <span id='mm-bonus-save-status' class='mm-save-status'></span>
+        </div>
+    </div>";
+}
+
+/**
+ * Rendu de l'onglet Profil > Statue : un datatable avec autant de lignes
+ * ("emplacements") que le niveau de l'Atelier du sculpteur en autorise
+ * ($artifact_capacity, ex-"Colonne 14" / ArtifactCapacity). Pour chaque
+ * emplacement :
+ *   1. un menu déroulant "Emplacement" (palier + élément, une seule entrée
+ *      par TID distinct, voir $statue_emplacements dans queries.php) ;
+ *   2. un menu déroulant "Bonus" peuplé dynamiquement en JS à partir de
+ *      window.STATUE_OPTIONS_BY_TID selon l'emplacement choisi ;
+ *   3. un champ numérique borné (min/max de la ligne statueid choisie).
+ *
+ * $statue_emplacements : liste de ['tid','label','element'] (queries.php).
+ * $player_statues      : progression déjà enregistrée, indexée par id_slot.
+ */
+function renderStatuesTable($artifact_capacity, $statue_emplacements, $player_statues) {
+    echo "<div class='statue-panel'>";
+    echo "<h2 class='statue-title'>🗿 Statues</h2>";
+
+    if ($artifact_capacity <= 0) {
+        echo "<p class='statue-empty-msg'>Construisez l'Atelier du sculpteur pour débloquer des emplacements de statues.</p></div>";
+        return;
+    }
+
+    echo "
+        <p class='statue-subtitle'>Emplacements disponibles : {$artifact_capacity} (selon le niveau de votre Atelier du sculpteur).</p>
+        <div class='statue-table'>
+            <div class='statue-row statue-row-header'>
+                <span>Emplacement</span>
+                <span>Emplacement (palier)</span>
+                <span>Bonus</span>
+                <span>Valeur</span>
+                <span></span>
+            </div>";
+
+    for ($slot = 1; $slot <= $artifact_capacity; $slot++) {
+        $current = $player_statues[$slot] ?? null;
+        $current_id_statue = $current['id_statue'] ?? 0;
+        $current_boost     = $current['boost'] ?? '';
+
+        echo "
+            <div class='statue-row' data-slot='{$slot}'>
+                <span class='statue-slot-number'>#{$slot}</span>
+                <select class='statue-select statue-select-tid' data-slot='{$slot}' onchange='onStatueTidChange(this)'>
+                    <option value=''>— Choisir —</option>";
+        foreach ($statue_emplacements as $empl) {
+            $selected = '';
+            // Pré-sélection de l'emplacement si une statue est déjà enregistrée sur ce slot
+            // (on ne connaît le TID qu'indirectement via id_statue, résolu côté JS au chargement).
+            echo "<option value='" . htmlspecialchars($empl['tid']) . "' data-element='" . htmlspecialchars($empl['element']) . "'>" . htmlspecialchars($empl['label']) . "</option>";
+        }
+        echo "
+                </select>
+                <select class='statue-select statue-select-bonus' data-slot='{$slot}' onchange='onStatueBonusChange(this)' disabled>
+                    <option value=''>— Choisir un emplacement —</option>
+                </select>
+                <input type='number' class='statue-input-boost' data-slot='{$slot}' value='{$current_boost}' disabled onchange='saveStatueSlot({$slot})'>
+                <button type='button' class='statue-clear-btn' onclick='clearStatueSlot({$slot})' title='Vider cet emplacement'>🗑️</button>
+                <input type='hidden' class='statue-current-id-statue' data-slot='{$slot}' value='{$current_id_statue}'>
+            </div>";
+    }
+
+    echo "
+        </div>
+        <div class='statue-save-row'>
+            <span id='statue-save-status' class='mm-save-status'></span>
+        </div>
     </div>";
 }
 
@@ -1743,10 +2045,10 @@ function renderTribusTable($tribus_list) {
         if (!$radar_ok) {
             echo "
             <div class='troop-card-requirement' style='color:#e74c3c; font-size:0.85em; font-weight:600; margin:8px 0; text-align:center;'>
-                🔒 Radar niv. {$radar_req} requis (actuel : niv. {$radar_actuel})
+                <img class='troop-card-condition-icon' src='images/icons/Lock.png' style='width:50px;'> Radar niv. {$radar_req} requis (actuel : niv. {$radar_actuel})
             </div>";
         } elseif ($debloque && !$is_maxed && $next_cost) {
-            $temps_txt = formatUnitsTime(($next_cost['time_min'] ?? 0) / 60);
+            $temps_txt = formatUnitsTime(($next_cost['time_min'] ?? 0) / 60, 'none');
             echo "
             <div class='building-card-costs'>
                 <span class='building-cost-item'><img class='building-cost-icon' src='images/icons/Raw Crystals.png' alt='Cristaux bruts' onerror=\"this.src='images/default.png'\">" . formatCost($next_cost['cost']) . "</span>
@@ -1808,9 +2110,10 @@ function renderEngravingsTable($engravings, $cat_color = "#1abc9c") {
         }
         $icon = htmlspecialchars($icon_raw);
 
-        // Sécurité pour le Type
-        $type_raw = $e['Type'] ?? 'Inconnu';
-        $type = htmlspecialchars(is_array($type_raw) ? implode(', ', $type_raw) : $type_raw);
+        // Sécurité pour le Type : nécessaire numérique pour le nom de fichier de l'icône
+        // (images/icons/Shard{n}.png -> Type 1 = Shard1.png, Type 4 = Shard4.png, etc.)
+        $type_raw = $e['Type'] ?? 0;
+        $type_num = (int)(is_array($type_raw) ? reset($type_raw) : $type_raw);
 
         $niv     = (int)($e['niveau_actuel'] ?? 0);
         $max     = (int)($e['niveau_max'] ?? 10);
@@ -1827,23 +2130,30 @@ function renderEngravingsTable($engravings, $cat_color = "#1abc9c") {
         // Création d'un ID valide pour le HTML, basé sur l'id numérique (utilisé pour l'upgrade)
         $safe_id = "eng-" . preg_replace('/[^a-zA-Z0-9]/', '', $tid) . "-{$id_engraving}";
 
-        $display_text = ($niv === 0) ? "Non débloqué" : "Niveau {$niv} / {$max}";
+        $display_text = ($niv === 0) ? "Non débloqué" : "Qualité {$niv} / {$max}";
         $btn_text = $is_maxed ? "Max !" : (($niv === 0) ? "Débloquer" : "Améliorer");
+
+        // Bouton rétrograder : même principe que sur les cartes bâtiments/personnages
+        $niv_precedent = max(0, $niv - 1);
+        $downgrade_disabled = ($niv <= 0) ? 'disabled' : '';
 
         echo "
         <div class='troop-card' id='card-{$safe_id}' data-tid='{$tid}' data-id-engraving='{$id_engraving}' data-maxed='{$maxed_attr}' style='border-top: 3px solid {$cat_color};'>
-            <div class='troop-card-visual'>
-                <img class='troop-card-img' src='images/engravings/{$icon}.png' alt='{$nom}' onerror=\"this.src='images/engravings/{$icon}.webp'\">
+            <div class='engraving-title-row'>
+                <div class='engraving-name-quality'>
+                    <span class='troop-card-name'>{$nom}</span>
+                    <span class='troop-card-level' id='lvl-{$safe_id}'>{$display_text}</span>
+                </div>
+                <img class='engraving-type-icon' src='images/icons/Shard{$type_num}.png' alt='Type {$type_num}' title='Type {$type_num}' onerror=\"this.style.display='none'\">
             </div>
 
-            <div class='troop-card-info'>
-                <span class='troop-card-name'>{$nom}</span>
-                <span style='font-size: 0.8em; color: #bdc3c7; background: rgba(255,255,255,0.1); padding: 2px 8px; border-radius: 12px;'>Type : {$type}</span>
-                <span class='troop-card-level' id='lvl-{$safe_id}'>{$display_text}</span>
+            <div class='troop-card-visual'>
+                <img class='troop-card-img' src='images/engravings/{$icon}.png' alt='{$nom}' onerror=\"this.src='images/engravings/{$icon}.webp'\">
             </div>";
 
         if (!$is_maxed) {
             echo "
+            <span class='troop-card-upgrade-title'>Améliorer au niveau {$next_lvl} :</span>
             <div class='troop-card-costs'>
                 <span class='troop-cost-item'>
                     <img class='troop-cost-icon' src='images/engravings/Epic_research_token.webp' alt='Jetons de recherche' onerror=\"this.src='images/default.png'\">
@@ -1858,6 +2168,10 @@ function renderEngravingsTable($engravings, $cat_color = "#1abc9c") {
                 <button class='btn-upgrade' {$disabled}
                         onclick=\"triggerUpgradeEngraving({$id_engraving}, '{$safe_id}', {$max}, '{$nom}', {$niv})\">
                     <span class='btn-text'>{$btn_text}</span>
+                </button>
+                <button class='btn-downgrade' {$downgrade_disabled}
+                        onclick=\"triggerDowngradeEngraving({$id_engraving}, '{$safe_id}', {$niv})\">
+                    <span class='btn-text'>&minus; Rétrograder au niveau {$niv_precedent}</span>
                 </button>
             </div>";
 
@@ -1901,9 +2215,17 @@ function renderEngravingsStatsSidebar($title, $engravings_list, $stats) {
 
     $percent = $stats['percent'] ?? 0;
 
-    echo "<div class='stats-sidebar' style='background: #2c3e50; padding: 15px; border-radius: 8px; color: #fff; border: 1px solid #456789;'>";
-    echo "<h4 style='margin: 0 0 10px 0; border-bottom: 2px solid #e74c3c; padding-bottom: 5px;'>{$title}</h4>";
-    echo "<div style='font-size: 1.8em; font-weight: bold; color: #e74c3c; text-align: center; margin-bottom: 10px;'>{$percent}%</div>";
+    // Même structure <details>/<summary> que les autres sidebars (bâtiments, troupes,
+    // chefs, héros) pour un comportement d'accordéon cohérent dans toute l'appli.
+    echo "<div class='stats-sidebar'>";
+    echo "<details class='stats-sidebar-accordion'>";
+    echo "<summary class='stats-sidebar-summary'>
+            <span class='stats-sidebar-title'>{$title}</span>
+            <span class='stats-sidebar-percent'>{$percent}%</span>
+            <span class='stats-sidebar-arrow'>&#9662;</span>
+          </summary>";
+    echo "<div class='stats-sidebar-content'>";
+
     echo "<ul style='list-style: none; padding: 0; margin: 0; font-size: 0.85em;'>{$rows_html}</ul>";
 
     if ($total_cost > 0) {
@@ -1915,7 +2237,9 @@ function renderEngravingsStatsSidebar($title, $engravings_list, $stats) {
               </div>";
     }
 
-    echo "</div>";
+    echo "</div>"; // .stats-sidebar-content
+    echo "</details>";
+    echo "</div>"; // .stats-sidebar
 }
 /* ==========================================================================
    TABLEAU DE BORD PRINCIPAL — Cartes "graph-card" façon ARCTracker
@@ -1936,141 +2260,313 @@ function renderMainDashboard(
     $stats_tribus, $stats_monument,
     $qg = null
 ) {
-    // % global "Armée" : agrégation de Troupes, Proto-troupes, Héros, Capacités des Chefs et Capacités de canonnière
-    $armee_current = $stats_troupes['current'] + $stats_proto['current'] + $stats_heros['current'] + $stats_officiers_capa['current'] + $stats_capacanon['current'];
-    $armee_max     = $stats_troupes['max'] + $stats_proto['max'] + $stats_heros['max'] + $stats_officiers_capa['max'] + $stats_capacanon['max'];
-    $armee_percent = ($armee_max > 0) ? round(($armee_current / $armee_max) * 100, 1) : 0;
-
     echo "<div class='dashboard-container'><h2>Tableau de Bord</h2>";
 
     // ================= SECTION BÂTIMENTS =================
-    // "X / Y bâtiments débloqués" : X = types de bâtiments (TID distincts) débloqués
-    // au QG actuel du joueur, Y = nombre total de types existant dans la catégorie
-    // (tous QG confondus, jusqu'à la fin du jeu).
-    echo "<div class='dash-section'>";
-    renderDashSectionHeader('🏗️', 'Bâtiments', $stats_buildings['percent'], 'Building-Overview');
-    echo "<div class='dash-subcards-row'>";
-    echo renderDashSubcard('🏦', 'Économie', $stats_res['current'], $stats_res['max'], $stats_res['percent'], "{$stats_res['types_debloques']} / {$stats_res['types_total']} bâtiments débloqués", 'Building-Ressource', false, false, $stats_res['percent_absolu']);
-    echo renderDashSubcard('🛡️', 'Défense', $stats_def['current'], $stats_def['max'], $stats_def['percent'], "{$stats_def['types_debloques']} / {$stats_def['types_total']} bâtiments débloqués", 'Building-Defense', false, false, $stats_def['percent_absolu']);
-    echo renderDashSubcard('🏰', 'Renfort', $stats_army['current'], $stats_army['max'], $stats_army['percent'], "{$stats_army['types_debloques']} / {$stats_army['types_total']} bâtiments débloqués", 'Building-Army', false, false, $stats_army['percent_absolu']);
-    echo renderDashSubcard('💣', 'Pièges', $stats_trap['current'], $stats_trap['max'], $stats_trap['percent'], "{$stats_trap['types_debloques']} / {$stats_trap['types_total']} bâtiments débloqués", 'Building-Trap', false, false, $stats_trap['percent_absolu']);
-    echo "</div></div>";
+    // %age affiché = percent_absolu (progression vers le VRAI max du jeu, indépendant
+    // du QG actuel), cohérent avec ce qu'affichait l'ancienne carte "Complétion".
+    renderDashSectionHeader('🏗️ Bâtiments');
+    echo "<div class='dash-section-box'>";
+    renderDashRow('🏦 Économie', $stats_res['percent_absolu'], 'Building-Ressource');
+    renderDashRow('🛡️ Défense', $stats_def['percent_absolu'], 'Building-Defense');
+    renderDashRow('🏰 Renfort', $stats_army['percent_absolu'], 'Building-Army');
+    renderDashRow('💣 Pièges', $stats_trap['percent_absolu'], 'Building-Trap');
+    echo "</div>";
 
     // ================= SECTION ARMÉE =================
-    // Toutes les cartes sur UNE seule rangée (Troupes / Proto-troupes / Héros / Capacité de
-    // canonnière / Chefs de bataillon désormais alignés ensemble, carte carrée comme les autres
-    // — elle n'est plus en pleine largeur).
-    echo "<div class='dash-section'>";
-    renderDashSectionHeader('⚔️', 'Armée', $armee_percent, 'Army-Overview');
-
-    echo "<div class='dash-subcards-row'>";
-    echo renderDashSubcard('🪖', 'Troupes', $stats_troupes['current'], $stats_troupes['max'], $stats_troupes['percent'], round($stats_troupes['percent']) . '% de progression', 'Character-Troop');
-    echo renderDashSubcard('🧪', 'Proto-troupes', $stats_proto['current'], $stats_proto['max'], $stats_proto['percent'], round($stats_proto['percent']) . '% de progression', 'Character-Proto');
-    echo renderDashSubcard('🦸', 'Héros', $stats_heros['current'], $stats_heros['max'], $stats_heros['percent'], round($stats_heros['percent']) . '% de progression', 'Character-Hero');
-    echo renderDashSubcard('🚤', 'Capacité de canonnière', $stats_capacanon['current'], $stats_capacanon['max'], $stats_capacanon['percent'], round($stats_capacanon['percent']) . '% de progression', 'Character-Spell');
-    echo renderDashSubcard(
-        '🎖️',
-        'Chefs de bataillon',
-        $stats_officiers_capa['current'],
-        $stats_officiers_capa['max'],
-        $stats_officiers_capa['percent'],
-        "{$chefs_debloques} / {$chefs_total} chefs débloqués",
-        'Character-Leader'
-    );
-    echo "</div>";
+    renderDashSectionHeader('⚔️ Armée');
+    echo "<div class='dash-section-box'>";
+    renderDashRow('🪖 Troupes', $stats_troupes['percent'], 'Character-Troop');
+    renderDashRow('🧪 Proto-troupes', $stats_proto['percent'], 'Character-Proto');
+    renderDashRow('🦸 Héros', $stats_heros['percent'], 'Character-Hero');
+    renderDashRow('🚤 Capacité de canonnière', $stats_capacanon['percent'], 'Character-Spell');
+    renderDashRow('🎖️ Chefs de bataillon', $stats_officiers_capa['percent'], 'Character-Leader');
     echo "</div>";
 
     // ================= SECTION GRAVURES =================
-    echo "<div class='dash-section'>";
-    renderDashSectionHeader('🪶', 'Gravures', $stats_gravures['percent'], 'Engraving-Overview');
-    echo "<div class='dash-subcards-row'>";
-    echo renderDashSubcard('🗡️', 'Gravures Offensives', $stats_gravures_off['current'], $stats_gravures_off['max'], $stats_gravures_off['percent'], "{$stats_gravures_off['current']} / {$stats_gravures_off['max']} débloquées", 'Engraving-Offensive');
-    echo renderDashSubcard('🛡️', 'Gravures Défensives', $stats_gravures_def['current'], $stats_gravures_def['max'], $stats_gravures_def['percent'], "{$stats_gravures_def['current']} / {$stats_gravures_def['max']} débloquées", 'Engraving-Defensive');
-    echo "</div></div>";
+    renderDashSectionHeader('🪶 Gravures');
+    echo "<div class='dash-section-box'>";
+    renderDashRow('🗡️ Gravures Offensives', $stats_gravures_off['percent'], 'Engraving-Offensive');
+    renderDashRow('🛡️ Gravures Défensives', $stats_gravures_def['percent'], 'Engraving-Defensive');
+    echo "</div>";
 
     // ================= SECTION AUTRES =================
-    echo "<div class='dash-section'>";
-    renderDashSectionHeader('✨', 'Autres');
-    echo "<div class='dash-subcards-row'>";
-    echo renderDashSubcard('🏝️', 'Tribus', $stats_tribus['current'], $stats_tribus['max'], $stats_tribus['percent'], "{$stats_tribus['debloquees']} tribus débloquées, dont {$stats_tribus['total']} max", 'Tribes');
-    echo renderDashSubcard('🗿', 'Monument mystique', $stats_monument['level'], $stats_monument['max_level'], $stats_monument['percent'], "{$stats_monument['bonus_obtenus']} / {$stats_monument['bonus_total']} bonus obtenus", 'Monument');
-    echo "</div></div>";
+    renderDashSectionHeader('✨ Autres');
+    echo "<div class='dash-section-box'>";
+    renderDashRow('🏝️ Tribus', $stats_tribus['percent'], 'Tribes');
+    renderDashRow('🗿 Monument mystique', $stats_monument['percent'], 'Monument');
+    echo "</div>";
 
     echo "</div>"; // .dashboard-container
 }
 
 /**
- * En-tête de section du Tableau de Bord : titre + (optionnellement) un pourcentage
- * global et sa barre de progression. Cliquable si $target_tab est fourni.
+ * Titre de section du Tableau de Bord (Bâtiments / Armée / Gravures / Autres).
+ * Volontairement minimal : un simple h3, pas de carte ni de barre de progression.
  */
-function renderDashSectionHeader($icon, $title, $percent = null, $target_tab = null) {
-    $onclick_attr = $target_tab ? " onclick=\"showTab('{$target_tab}')\"" : "";
-    $header_class = $target_tab ? 'dash-section-header clickable' : 'dash-section-header';
-    $arrow_html   = $target_tab ? "<span class='dash-section-arrow'>›</span>" : "";
-
-    $percent_html = "";
-    $track_html   = "";
-    if ($percent !== null) {
-        $percent_safe = max(0, min(100, (float)$percent));
-        $percent_html = "<div class='dash-section-percent'>{$percent_safe}%</div>";
-        $track_html   = "<div class='dash-section-track'><div class='dash-section-fill' style='width: {$percent_safe}%;'></div></div>";
-    }
-
-    echo "
-    <div class='{$header_class}'{$onclick_attr}>
-        <div class='dash-section-title'><span class='dash-section-icon'>{$icon}</span><span>" . htmlspecialchars($title) . "</span></div>
-        <div style='display:flex; align-items:center;'>{$percent_html}{$arrow_html}</div>
-    </div>
-    {$track_html}";
+function renderDashSectionHeader($title) {
+    echo "<h3 class='dash-section-title'>" . htmlspecialchars($title, ENT_QUOTES, 'UTF-8') . "</h3>";
 }
 
 /**
- * Carte compacte utilisée dans les sous-sections du Tableau de Bord
- * (ex: Économie/Défense/Renfort sous "Bâtiments"). Même logique que
- * renderOverviewCard, mais gabarit plus petit pensé pour être groupé par section.
+ * Une ligne "sous-catégorie" du Tableau de Bord : libellé à gauche, %age à droite,
+ * façon écran "Stats de joueur" du jeu. Cliquable si $target_tab est fourni.
  */
+function renderDashRow($label, $percent, $target_tab = null) {
+    $percent_safe = max(0, min(100, (float)$percent));
+    $classes      = $target_tab ? 'dash-row clickable' : 'dash-row';
+    $onclick_attr = $target_tab ? " onclick=\"showTab('{$target_tab}')\"" : "";
+
+    echo "
+    <div class='{$classes}'{$onclick_attr}>
+        <span class='dash-row-label'>" . htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . "</span>
+        <span class='dash-row-value'>{$percent_safe}%</span>
+    </div>";
+}
+
+/* ==========================================================================
+   BANDEAU DE PROGRESSION PAR QG (sous le Tableau de Bord principal)
+   ========================================================================== */
+
 /**
- * Carte compacte utilisée dans les sous-sections du Tableau de Bord
- * (ex: Économie/Défense/Renfort sous "Bâtiments"). Reprend le style visuel des
- * cartes "Succès" du jeu : icône qui déborde en haut de la carte, titre en
- * dessous, une div d'info, puis une barre de progression AVEC le chiffre à
- * l'intérieur, et à la place de la "Prime" du jeu, le %age vers le "max du max"
- * (= le plafond de fin de jeu, indépendant du QG actuel — voir $percent_absolu).
- *
- * $percent_absolu : si null, retombe sur $percent (cas des sections qui n'ont pas
- * de notion de plafond "au-delà du QG actuel", ex. gravures, dont le niveau_max
- * est déjà le vrai plafond du jeu).
+ * Petit utilitaire : à partir d'une liste de lignes ['Niveau' => int, 'Gate' => int] pour
+ * un même TID (palier de bâtiment ou de personnage), renvoie le plus haut Niveau dont le
+ * palier (Gate = TownHallLevel ou UpgradeHouseLevel) est <= $threshold. C'est l'équivalent
+ * du "niveau_max" (borné par le QG/bâtiment ACTUEL) calculé dans queries.php, mais rejouable
+ * pour n'importe quel QG N — pas seulement le QG réel du joueur.
  */
-function renderDashSubcard($icon, $title, $current, $max, $percent, $subtitle, $target_tab = null, $disabled = false, $full_width = false, $percent_absolu = null) {
-    $classes = 'dash-subcard';
-    if ($full_width) $classes .= ' full-width';
-    if ($disabled) $classes .= ' disabled';
-    if ($target_tab && !$disabled) $classes .= ' clickable';
+function maxLevelAtThreshold($rows, $threshold) {
+    $max = 0;
+    foreach ($rows as $r) {
+        if ($r['Gate'] <= $threshold && $r['Niveau'] > $max) {
+            $max = $r['Niveau'];
+        }
+    }
+    return $max;
+}
 
-    $onclick_attr   = ($target_tab && !$disabled) ? " onclick=\"showTab('{$target_tab}')\"" : "";
-    $percent_safe   = max(0, min(100, (float)$percent));
-    $percent_abs_safe = ($percent_absolu !== null) ? max(0, min(100, (float)$percent_absolu)) : $percent_safe;
+/**
+ * Calcule, pour chaque niveau de QG (voir $all_qg_images dans queries.php), si le joueur
+ * a atteint le niveau maximum ATTEIGNABLE À CE QG (comme si toutes les sections étaient à
+ * 100% à ce QG précis — PAS le vrai maximum absolu de fin de jeu, qui rendrait la coche
+ * quasi impossible à obtenir sur les premiers QG) sur TOUT ce qui est débloqué à ce niveau :
+ *   - Bâtiments : nombre CUMULÉ d'instances débloquées par QG (townhall_levels, même logique
+ *     que la section BÂTIMENTS de update_qg.php), plafond de niveau = MAX(Niveau) FROM
+ *     buildings WHERE TID=X AND TownHallLevel <= N (même calcul que niveau_max dans
+ *     getBuildingsDisplay(), mais évalué pour CE QG N plutôt que le QG réel du joueur) ;
+ *   - Troupes / Capacités de canonnière / Héros (characterid.HQUnlock <= N) : plafond de
+ *     niveau = MAX(Niveau) FROM characters WHERE TID=X AND UpgradeHouseLevel <= N.
+ *     Simplification volontaire : en jeu, Troupes/Capa. canonnière dépendent normalement du
+ *     niveau réel de l'Arsenal (pas directement du QG, voir getFilteredUnits() dans
+ *     queries.php) ; ici on simule "si on était à ce QG-là", donc on utilise directement N
+ *     comme palier de référence pour les 3 classes (c'est déjà exactement le calcul utilisé
+ *     pour les Héros en jeu).
+ *
+ * Volontairement HORS scope (non demandés pour ce badge) : Officiers/Chefs de bataillon
+ * (dépendent des talents débloqués, pas d'un simple niveau), Proto-troupes, Gravures,
+ * Tribus, Monument mystique.
+ *
+ * Retourne un tableau [niveau_qg => bool].
+ */
+function getQgMaxedMap($pdo, $id_player, $all_qg_images) {
+    // ---- Bâtiments : paliers Niveau/TownHallLevel par TID ----
+    $building_rows_by_tid = [];
+    foreach ($pdo->query("SELECT TID, Niveau, TownHallLevel FROM buildings")->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $building_rows_by_tid[$r['TID']][] = ['Niveau' => (int)$r['Niveau'], 'Gate' => (int)$r['TownHallLevel']];
+    }
 
-    $value_display  = $disabled ? "—" : "{$current}/{$max}";
-    $percent_col_html = $disabled
-        ? "<span class='dash-subcard-badge'>Bientôt</span>"
-        : "<span class='dash-subcard-percent-label'>Complétion</span><span class='dash-subcard-percent-value'>{$percent_abs_safe}%</span>";
+    // Progression du joueur : niveau par (id_building, id_instance)
+    $player_buildings = [];
+    $stmt_pb = $pdo->prepare("SELECT id_building, id_instance, niveau FROM progress_building WHERE id_player = ?");
+    $stmt_pb->execute([$id_player]);
+    foreach ($stmt_pb->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $player_buildings[(int)$r['id_building']][(int)$r['id_instance']] = (int)$r['niveau'];
+    }
 
-    return "
-        <div class='{$classes}'{$onclick_attr}>
-            <div class='dash-subcard-icon-badge'>{$icon}</div>
-            <div class='dash-subcard-title'>" . htmlspecialchars($title) . "</div>
-            <div class='dash-subcard-info'>" . htmlspecialchars($subtitle) . "</div>
-            <div class='dash-subcard-bottom-row'>
-                <div class='dash-subcard-progress-col'>
-                    <div class='dash-subcard-track'>
-                        <div class='dash-subcard-fill' style='width: {$percent_safe}%;'></div>
-                        <span class='dash-subcard-track-label'>{$value_display}</span>
-                    </div>
-                </div>
-                <div class='dash-subcard-percent-col'>{$percent_col_html}</div>
+    // Mapping TID (colonne townhall_levels) -> id_building
+    $tid_to_id = [];
+    foreach ($pdo->query("SELECT id, TID FROM buildingid")->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $tid_to_id[$r['TID']] = (int)$r['id'];
+    }
+
+    // Nombre CUMULÉ d'instances débloquées par QG, par colonne/TID (même table/logique
+    // que la section BÂTIMENTS de update_qg.php).
+    $th_rows = $pdo->query("SELECT * FROM townhall_levels ORDER BY TownHallLevel ASC")->fetchAll(PDO::FETCH_ASSOC);
+    $colonnes_ignorees = [
+        'TownHallLevel', 'XP', 'RequiredBuilding',
+        'RequiredBuildingLevel', 'RequiredTroopLevel', 'MaterialSlots'
+    ];
+
+    // Pièges spéciaux (Mine / Super mine / Électromine) : un seul niveau de RECHERCHE
+    // s'applique à TOUTES les instances placées sur la base (voir MINE_TIDS / $mine_canonical
+    // dans queries.php, et la note dans upgrade_building.php). Le nombre d'"instances" dans
+    // townhall_levels pour ces TID représente le nombre de mines posables, PAS un nombre de
+    // niveaux à monter individuellement : on ne doit donc PAS exiger que CHAQUE instance ait
+    // atteint le niveau max, seulement que la meilleure instance existante (celle qui porte le
+    // vrai niveau de recherche) l'ait atteint.
+    $mine_tids = ['TID_TRAP_MINE', 'TID_TRAP_TANK_MINE', 'TID_TRAP_SHOCK_MINE'];
+
+    // ---- Troupes / Capacités de canonnière / Héros : paliers Niveau/UpgradeHouseLevel par TID ----
+    $char_rows_by_tid = [];
+    foreach ($pdo->query("SELECT TID, Niveau, UpgradeHouseLevel FROM characters")->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $char_rows_by_tid[$r['TID']][] = ['Niveau' => (int)$r['Niveau'], 'Gate' => (int)$r['UpgradeHouseLevel']];
+    }
+
+    $chars = $pdo->query("SELECT id, TID, Class, HQUnlock FROM characterid WHERE Class IN ('Troupe','Spell','Hero')")->fetchAll(PDO::FETCH_ASSOC);
+
+    // IMPORTANT : characters.UpgradeHouseLevel n'est PAS exprimé en niveau de QG pour les
+    // Troupes/Capacités de canonnière — c'est le niveau d'ARSENAL requis (id_building 12,
+    // TID_BUILDING_LABORATORY), sur une toute autre échelle numérique que le QG (ex : Arsenal
+    // niveau 1 nécessite QG4, niveau 2 nécessite QG5...). Utiliser directement N (le QG) comme
+    // palier serait donc totalement incohérent (bien trop permissif) — voir le commentaire
+    // "Le vrai plafond du moment..." dans getFilteredUnits() de queries.php. Pour "simuler QG N",
+    // on doit donc d'abord simuler le plafond d'Arsenal ATTEIGNABLE à ce QG N (même logique
+    // maxLevelAtThreshold que pour les bâtiments), puis l'utiliser comme palier pour ces
+    // classes. Les Héros, eux, sont gated directement par le QG (characters.UpgradeHouseLevel
+    // vaut d'ailleurs toujours 0 pour les Héros dans cette table — donc en pratique niveau_max
+    // = niveau_max_absolu pour eux, comme dans le vrai calcul de queries.php).
+    $arsenal_rows = $building_rows_by_tid['TID_BUILDING_LABORATORY'] ?? [];
+
+    $player_chars = [];
+    $stmt_pc = $pdo->prepare("SELECT id_character, niveau FROM progress_character WHERE id_player = ?");
+    $stmt_pc->execute([$id_player]);
+    foreach ($stmt_pc->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $player_chars[(int)$r['id_character']] = (int)$r['niveau'];
+    }
+
+    $result = [];
+    foreach ($all_qg_images as $qg_row) {
+        $N  = (int)$qg_row['Niveau'];
+        $ok = true;
+
+        // -- Bâtiments débloqués à ce QG --
+        $th_row = null;
+        foreach ($th_rows as $row) {
+            if ((int)$row['TownHallLevel'] === $N) { $th_row = $row; break; }
+        }
+        if ($th_row) {
+            foreach ($th_row as $col => $val) {
+                if (in_array($col, $colonnes_ignorees, true)) continue;
+                if (!isset($tid_to_id[$col])) continue; // colonne sans équivalent buildingid
+                $nb_instances = (int)$val;
+                if ($nb_instances <= 0) continue;
+
+                $id_building = $tid_to_id[$col];
+                $max_at_n    = maxLevelAtThreshold($building_rows_by_tid[$col] ?? [], $N);
+                if ($max_at_n <= 0) continue;
+
+                if (in_array($col, $mine_tids, true)) {
+                    // Mines : on prend le meilleur niveau parmi les instances existantes
+                    // (équivalent de $mine_canonical dans queries.php), pas une exigence
+                    // par instance.
+                    $best_niveau = !empty($player_buildings[$id_building]) ? max($player_buildings[$id_building]) : 0;
+                    if ($best_niveau < $max_at_n) { $ok = false; break 2; }
+                    continue;
+                }
+
+                for ($inst = 1; $inst <= $nb_instances; $inst++) {
+                    $niv = $player_buildings[$id_building][$inst] ?? 0;
+                    if ($niv < $max_at_n) { $ok = false; break 2; }
+                }
+            }
+        }
+
+        // -- Troupes / Capacités de canonnière / Héros débloqués à ce QG --
+        if ($ok) {
+            // Plafond d'Arsenal simulé "si on était à ce QG" (voir note plus haut) : sert de
+            // palier pour les Troupes/Capacités de canonnière, PAS pour les Héros.
+            $arsenal_max_at_n = maxLevelAtThreshold($arsenal_rows, $N);
+
+            foreach ($chars as $c) {
+                if ((int)$c['HQUnlock'] > $N) continue;
+
+                $is_hero_class = (strcasecmp(trim($c['Class'] ?? ''), 'Hero') === 0);
+                $gate          = $is_hero_class ? $N : $arsenal_max_at_n;
+
+                $max_at_n = maxLevelAtThreshold($char_rows_by_tid[$c['TID']] ?? [], $gate);
+                if (empty($char_rows_by_tid[$c['TID']])) continue; // TID inconnu de la table characters
+                // Comme dans getFilteredUnits() (queries.php) : si aucun palier n'est encore
+                // satisfait (ex. Arsenal pas encore construit), le niveau max retombe à 1
+                // (le personnage reste utilisable à son niveau de base), jamais à 0.
+                $max_at_n = max(1, $max_at_n);
+                $niv = $player_chars[(int)$c['id']] ?? 0;
+                if ($niv < $max_at_n) { $ok = false; break; }
+            }
+        }
+
+        $result[$N] = $ok;
+    }
+
+    return $result;
+}
+
+/**
+ * Bandeau horizontal scrollable listant tous les niveaux de QG (visuels de townhall_levels
+ * via $all_qg_images, voir queries.php), affiché juste sous le Tableau de Bord principal.
+ * Une pastille apparaît sur chaque niveau :
+ *   - images/icons/notcheck.png : QG pas encore atteint (niveau > QG actuel du joueur) ;
+ *   - images/icons/speedup.png  : QG actuel du joueur ;
+ *   - images/icons/check.png    : QG déjà dépassé ET entièrement maxé à ce palier (voir
+ *     getQgMaxedMap()) ;
+ *   - rien : QG déjà dépassé mais pas encore entièrement maxé à ce palier.
+ */
+function renderQgProgressStrip($all_qg_images, $qg_maxed_map, $current_qg) {
+    if (empty($all_qg_images)) return;
+
+    $current_qg = (int)$current_qg;
+
+    echo "<div class='qg-strip-section'>";
+    echo "<h3 class='dash-section-title'>🏛️ Progression par QG</h3>";
+    echo "<div class='qg-progress-strip'>";
+
+    foreach ($all_qg_images as $row) {
+        $niveau = (int)$row['Niveau'];
+        $img    = htmlspecialchars($row['ExportName'] ?: 'default-building', ENT_QUOTES);
+
+        $is_future  = ($niveau > $current_qg);
+        $is_current = ($niveau === $current_qg);
+        $is_maxed   = !$is_future && !empty($qg_maxed_map[$niveau]);
+
+        if ($is_future) {
+            $badge_src = 'images/icons/notcheck.png';
+            $badge_alt = 'QG non atteint';
+        } elseif ($is_maxed) {
+            // La coche prime sur la pastille "QG actuel" : si tout est déjà maxé à ce
+            // palier (y compris pour le QG actuel du joueur), on affiche check.png.
+            $badge_src = 'images/icons/check.png';
+            $badge_alt = 'Maxé';
+        } elseif ($is_current) {
+            $badge_src = 'images/icons/speedup.png';
+            $badge_alt = 'QG actuel';
+        } else {
+            $badge_src = null;
+            $badge_alt = '';
+        }
+
+        $card_class = 'qg-strip-card';
+        if ($is_current) $card_class .= ' qg-strip-card-current';
+        if ($is_future)  $card_class .= ' qg-strip-card-future';
+        if ($is_maxed)   $card_class .= ' qg-strip-card-maxed';
+
+        $badge_html = $badge_src
+            ? "<img class='qg-strip-check' src='{$badge_src}' alt='" . htmlspecialchars($badge_alt, ENT_QUOTES) . "'>"
+            : "";
+
+        // Fallback en cascade .webp -> .png -> default-building.png : on ne connaît pas
+        // avec certitude l'extension réelle utilisée pour les visuels de QG, donc on essaie
+        // les deux avant de retomber sur l'image générique (même ExportName que buildings).
+        echo "
+        <div class='{$card_class}'>
+            <div class='qg-strip-img-wrap'>
+                <img class='qg-strip-img' src='images/{$img}.webp' alt='QG {$niveau}' onerror=\"this.onerror=function(){this.src='images/default-building.png';this.onerror=null;};this.src='images/{$img}.png';\">
+                {$badge_html}
             </div>
+            <div class='qg-strip-level'>QG {$niveau}</div>
         </div>";
+    }
+
+    echo "</div>"; // .qg-progress-strip
+    echo "</div>"; // .qg-strip-section
 }
 
 /**
@@ -2124,7 +2620,7 @@ function renderCategoryNav($title, $items) {
         $card_classes = 'category-nav-card' . ($locked ? ' locked' : '');
         $onclick_attr = $locked ? '' : " onclick=\"showTab('{$tab}')\"";
         $title_attr   = $locked ? " title=\"{$tooltip}\"" : "";
-        $lock_html    = $locked ? " <span class='menu-lock'>🔒</span>" : "";
+        $lock_html    = $locked ? " <span class='menu-lock'><img src='images/icons/Lock.png'></span>" : "";
 
         echo "
         <div class='{$card_classes}'{$onclick_attr}{$title_attr}>
@@ -2140,6 +2636,243 @@ function renderCategoryNav($title, $items) {
             </div>
             <div class='category-nav-card-arrow'>›</div>
         </div>";
+    }
+
+    echo "</div></div>";
+}
+
+/* ==========================================================================
+   ÉVÉNEMENTS EN COURS (bannière "event-panel" à côté du Tableau de Bord)
+   --------------------------------------------------------------------------
+   Schéma attendu (voir demande) :
+     - eventid(id PK, TID FK->texts.TID, HQUnlock, ExportName)
+     - tmob(id FK->eventid.id, debut DATETIME, end DATETIME)
+   Un événement est "actif" quand NOW() est compris entre debut et end.
+   ========================================================================== */
+
+/**
+ * Récupère les événements actuellement actifs (debut <= NOW() <= end),
+ * triés par date de fin la plus proche en premier (l'urgent en haut de liste).
+ */
+/**
+ * Événements irréguliers (programmés dans tmob) + événements récurrents
+ * (hebdomadaires, calculés à la volée depuis eventid — voir plus bas).
+ *
+ * Colonnes attendues :
+ *   - tmob(id, debut, end NULL-able, gba, troop1, troop2)
+ *     gba/troop1/troop2 stockent le TID d'un characterid (pas l'icône
+ *     directement) : on va chercher l'IconExportName via jointure.
+ *   - eventid(id, TID, hqunlock, ExportName, recurring_weekday, recurring_start, recurring_end)
+ *     recurring_weekday : liste de jours séparés par des virgules, ex "1,5"
+ *     (0=Lundi ... 6=Dimanche, un événement peut tomber sur plusieurs jours
+ *     dans la semaine — ex mardi+samedi = "1,5"). NULL = événement non
+ *     récurrent (géré via tmob).
+ *
+ * Chaque événement retourné a une clé 'has_end' : false => pas de compte à
+ * rebours à afficher (événement permanent / sans date de fin connue).
+ */
+function getActiveEvents($pdo) {
+    global $selected_lang;
+
+    // --- 1) Événements irréguliers programmés dans tmob ---
+    $sql = "SELECT ev.id, ev.TID, ev.hqunlock, ev.ExportName,
+                   tm.debut, tm.`end`,
+                   gba_c.IconExportName AS gba_icon,
+                   t1_c.IconExportName  AS troop1_icon,
+                   t2_c.IconExportName  AS troop2_icon,
+                   IFNULL(t.$selected_lang, ev.TID) AS nom
+            FROM tmob tm
+            INNER JOIN eventid ev ON ev.id = tm.id
+            LEFT JOIN texts t ON t.TID = ev.TID COLLATE utf8mb4_unicode_ci
+            LEFT JOIN characterid gba_c ON gba_c.TID = tm.gba    COLLATE utf8mb4_unicode_ci
+            LEFT JOIN characterid t1_c  ON t1_c.TID  = tm.troop1 COLLATE utf8mb4_unicode_ci
+            LEFT JOIN characterid t2_c  ON t2_c.TID  = tm.troop2 COLLATE utf8mb4_unicode_ci
+            WHERE tm.debut <= NOW() AND (tm.`end` IS NULL OR tm.`end` >= NOW())";
+    $stmt = $pdo->query($sql);
+    $events = $stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [];
+    foreach ($events as &$e) {
+        $e['has_end'] = ($e['end'] !== null);
+        $e['is_recurring'] = false;
+    }
+    unset($e);
+
+    // --- 2) Événements récurrents (hebdomadaires) : pas de ligne dans tmob,
+    //        on calcule "actif ou pas" directement depuis eventid. Un même
+    //        événement peut revenir plusieurs jours dans la semaine
+    //        (recurring_weekday = liste "1,5" par ex.), ET la plage horaire
+    //        peut chevaucher minuit (ex: 10:00:00 -> 09:59:59 le lendemain,
+    //        comme sur GEARHEART/IMITATION/STRIKEBACK/TROPICAL/VOLCANO).
+    //        On récupère toutes les définitions récurrentes et on évalue
+    //        l'horaire en PHP plutôt qu'en SQL, plus simple à lire/déboguer.
+    $has_recurring_cols = admin_table_has_column($pdo, 'eventid', 'recurring_weekday');
+    if ($has_recurring_cols) {
+        $sql_rec = "SELECT ev.id, ev.TID, ev.hqunlock, ev.ExportName,
+                           ev.recurring_weekday, ev.recurring_start, ev.recurring_end,
+                           IFNULL(t.$selected_lang, ev.TID) AS nom
+                    FROM eventid ev
+                    LEFT JOIN texts t ON t.TID = ev.TID COLLATE utf8mb4_unicode_ci
+                    WHERE ev.recurring_weekday IS NOT NULL AND ev.recurring_weekday <> ''";
+        $stmt_rec = $pdo->query($sql_rec);
+        $definitions = $stmt_rec ? $stmt_rec->fetchAll(PDO::FETCH_ASSOC) : [];
+
+        $now = new DateTime();
+        foreach ($definitions as $r) {
+            $eval = evaluateRecurringEvent($r['recurring_weekday'], $r['recurring_start'], $r['recurring_end'], $now);
+            if (!$eval['active']) continue;
+
+            $events[] = [
+                'id'          => $r['id'],
+                'TID'         => $r['TID'],
+                'hqunlock'    => $r['hqunlock'],
+                'ExportName'  => $r['ExportName'],
+                'debut'       => null,
+                'end'         => $eval['end_datetime'],
+                'has_end'     => ($eval['end_datetime'] !== null),
+                'is_recurring'=> true,
+                'gba_icon'    => null,
+                'troop1_icon' => null,
+                'troop2_icon' => null,
+                'nom'         => $r['nom'],
+            ];
+        }
+    }
+
+    // Tri : ceux qui se terminent bientôt en premier, permanents à la fin.
+    usort($events, function ($a, $b) {
+        if ($a['has_end'] && $b['has_end']) return strtotime($a['end']) <=> strtotime($b['end']);
+        if ($a['has_end'] xor $b['has_end']) return $a['has_end'] ? -1 : 1;
+        return 0;
+    });
+
+    return $events;
+}
+
+/**
+ * Détermine si un événement récurrent est actif "maintenant", et calcule sa
+ * date de fin réelle (calendaire) pour le compte à rebours — en gérant le
+ * cas où la plage horaire chevauche minuit (recurring_end < recurring_start,
+ * ex: 10:00:00 -> 09:59:59 le jour suivant).
+ *
+ * @param string      $weekdaysCsv  ex "1,5" — 0=Lundi ... 6=Dimanche (convention MySQL WEEKDAY())
+ * @param string      $start        "HH:MM:SS"
+ * @param string|null $end          "HH:MM:SS" ou null (pas de fin affichée)
+ * @param DateTime    $now
+ * @return array{active: bool, end_datetime: ?string}
+ */
+function evaluateRecurringEvent($weekdaysCsv, $start, $end, DateTime $now) {
+    $weekdays = array_map('intval', array_filter(array_map('trim', explode(',', $weekdaysCsv)), fn($v) => $v !== ''));
+    if (empty($weekdays) || !$start) {
+        return ['active' => false, 'end_datetime' => null];
+    }
+
+    $todayIdx     = ((int)$now->format('N')) - 1;      // 0=Lundi ... 6=Dimanche
+    $yesterdayIdx = ($todayIdx + 6) % 7;                // jour précédent, pour le cas "chevauche minuit"
+    $curTime      = $now->format('H:i:s');
+    $wraps        = ($end !== null && $end < $start);   // ex: start=10:00:00, end=09:59:59 -> traverse minuit
+
+    // Cas A : l'événement a démarré AUJOURD'HUI (jour de la semaine correspondant + heure >= début)
+    if (in_array($todayIdx, $weekdays, true) && $curTime >= $start) {
+        if (!$wraps) {
+            // Même jour : actif jusqu'à $end (ou sans fin si $end est NULL)
+            if ($end === null || $curTime <= $end) {
+                $end_datetime = $end !== null ? ($now->format('Y-m-d') . ' ' . $end) : null;
+                return ['active' => true, 'end_datetime' => $end_datetime];
+            }
+            return ['active' => false, 'end_datetime' => null];
+        }
+        // Chevauche minuit : actif jusqu'à $end demain
+        $tomorrow = (clone $now)->modify('+1 day')->format('Y-m-d');
+        return ['active' => true, 'end_datetime' => $tomorrow . ' ' . $end];
+    }
+
+    // Cas B : l'événement a démarré HIER et chevauche minuit -> encore actif
+    // aujourd'hui si l'heure actuelle n'a pas dépassé $end.
+    if ($wraps && in_array($yesterdayIdx, $weekdays, true) && $curTime <= $end) {
+        return ['active' => true, 'end_datetime' => $now->format('Y-m-d') . ' ' . $end];
+    }
+
+    return ['active' => false, 'end_datetime' => null];
+}
+
+/**
+ * Petit utilitaire : vérifie si une colonne existe (pour rester compatible
+ * si les colonnes "recurring_*" n'ont pas encore été ajoutées à eventid).
+ */
+function admin_table_has_column($pdo, $table, $column) {
+    static $cache = [];
+    $key = $table . '.' . $column;
+    if (!isset($cache[$key])) {
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM information_schema.COLUMNS
+                                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?");
+        $stmt->execute([$table, $column]);
+        $cache[$key] = (int)$stmt->fetchColumn() > 0;
+    }
+    return $cache[$key];
+}
+
+/**
+ * Affiche la bannière "event-panel" : liste scrollable des événements actifs
+ * (image + titre + compte à rebours j-h-m-s si une fin est connue, mis à jour
+ * côté JS via data-end="<timestamp ms>" — voir script.js). Les événements
+ * "gba" (event 5) et "troopmania" (event 12) affichent en plus 1 ou 2
+ * icônes en incrustation, en bas à droite de la bannière (50x50px).
+ */
+function renderEventPanel($events) {
+    echo "<div class='event-panel'>";
+    echo "
+        <div class='event-panel-header'>
+            <span class='event-panel-icon'>🎉</span>
+            <h2>Événements en cours</h2>
+        </div>";
+    echo "<div class='event-list'>";
+
+    if (empty($events)) {
+        echo "<div class='event-empty'>Aucun événement en cours pour le moment.</div>";
+    } else {
+        foreach ($events as $ev) {
+            $nom     = htmlspecialchars($ev['nom']);
+            $img     = "images/event/" . htmlspecialchars($ev['ExportName']) . ".png";
+            $endAttr = '';
+            // event-ending-soon (surbrillance orange) réservé aux événements récurrents,
+            // demandé explicitement : les événements irréguliers (sans recurring_start/end,
+            // gérés via tmob) gardent toujours l'affichage neutre.
+            $recurringAttr = " data-recurring='" . ($ev['is_recurring'] ? '1' : '0') . "'";
+
+            if ($ev['has_end']) {
+                $endMs   = strtotime($ev['end']) * 1000;
+                $endAttr = " data-end='{$endMs}'";
+            }
+
+            echo "<div class='event-card'{$endAttr}{$recurringAttr}>";
+            echo "<div class='event-card-img-wrap'>";
+            echo "<img class='event-card-img' src='{$img}' alt='{$nom}' onerror=\"this.style.visibility='hidden'\">";
+
+            if (!empty($ev['gba_icon'])) {
+                $gbaImg = "images/characters/TempSpell/" . htmlspecialchars($ev['gba_icon']) . ".png";
+                echo "<img class='event-overlay event-overlay-gba' src='{$gbaImg}' alt='' onerror=\"this.style.display='none'\">";
+            }
+            if (!empty($ev['troop1_icon'])) {
+                $t1Img = "images/characters/Troupe/" . htmlspecialchars($ev['troop1_icon']) . ".png";
+                echo "<img class='event-overlay event-overlay-troop1' src='{$t1Img}' alt='' onerror=\"this.style.display='none'\">";
+            }
+            if (!empty($ev['troop2_icon'])) {
+                $t2Img = "images/characters/Troupe/" . htmlspecialchars($ev['troop2_icon']) . ".png";
+                echo "<img class='event-overlay event-overlay-troop2' src='{$t2Img}' alt='' onerror=\"this.style.display='none'\">";
+            }
+
+            echo "</div>"; // .event-card-img-wrap
+
+            echo "<div class='event-card-info'>";
+            echo "<div class='event-card-title'>{$nom}</div>";
+            if ($ev['has_end']) {
+                echo "<div class='event-card-countdown'>--j --h --m --s</div>";
+            } else {
+                echo "<div class='event-card-countdown event-permanent'></div>";
+            }
+            echo "</div>"; // .event-card-info
+
+            echo "</div>"; // .event-card
+        }
     }
 
     echo "</div></div>";

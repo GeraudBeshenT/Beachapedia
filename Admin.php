@@ -12,7 +12,7 @@ require_once 'admin_config.php';
 // non autorisé reçoit un simple message d'erreur (pas de redirection silencieuse
 // qui laisserait penser à un bug).
 if (!isset($_SESSION['player_id'])) {
-    header("Location: index.php");
+    header("Location: /");
     exit();
 }
 if (!admin_check_access()) {
@@ -22,7 +22,7 @@ if (!admin_check_access()) {
         <div style='text-align:center;'>
             <h1>🔒 Accès refusé</h1>
             <p>Cette page est réservée à l'administrateur.</p>
-            <p><a href='dashboard.php' style='color:#1abc9c;'>← Retour au dashboard</a></p>
+            <p><a href='/dashboard' style='color:#1abc9c;'>← Retour au dashboard</a></p>
         </div>
     </body></html>";
     exit();
@@ -185,13 +185,25 @@ if (!admin_check_access()) {
         background: #10161f;
     }
     .admin-btn-edit { background: #2b6ea3; color: #fff; }
+
+    .event-thumb {
+        width: 34px;
+        height: 34px;
+        object-fit: contain;
+        border-radius: 6px;
+        background: rgba(0,0,0,0.25);
+        vertical-align: middle;
+    }
+    #event-table input[type="datetime-local"] {
+        width: 190px;
+    }
 </style>
 </head>
 <body>
 
 <div class="admin-topbar">
     <h1>🛠️ Administration — Beachapedia</h1>
-    <a href="dashboard.php">← Retour au dashboard</a>
+    <a href="/dashboard">← Retour au dashboard</a>
 </div>
 
 <div class="admin-container">
@@ -221,6 +233,68 @@ if (!admin_check_access()) {
                 <option value="">— Choisir un type d'abord —</option>
             </select>
         </label>
+    </div>
+
+    <div id="admin-events" class="admin-card">
+        <h3>🎉 Événements</h3>
+        <p class="admin-upload-hint" style="margin:-6px 0 14px;">Cette liste ne gère que les événements ponctuels/irréguliers (programmés ici avec une date). Les événements récurrents (hebdomadaires) sont configurés directement dans <code>eventid</code> et ne remontent pas ici.</p>
+
+        <div class="admin-fiche-grid">
+            <label class="admin-field">
+                <span>Événement</span>
+                <select id="event-select">
+                    <option value="">— Chargement… —</option>
+                </select>
+            </label>
+            <label class="admin-field">
+                <span>Début</span>
+                <input type="datetime-local" id="event-debut">
+            </label>
+            <label class="admin-field">
+                <span>Fin (laisser vide si pas de fin)</span>
+                <input type="datetime-local" id="event-end">
+            </label>
+            <label class="admin-field" id="event-gba-wrap" style="display:none;">
+                <span>Sort GBA (TempSpell)</span>
+                <select id="event-gba">
+                    <option value="">— Aucun —</option>
+                </select>
+            </label>
+            <label class="admin-field" id="event-troop1-wrap" style="display:none;">
+                <span>Troupe 1</span>
+                <select id="event-troop1">
+                    <option value="">— Aucune —</option>
+                </select>
+            </label>
+            <label class="admin-field" id="event-troop2-wrap" style="display:none;">
+                <span>Troupe 2 (optionnel)</span>
+                <select id="event-troop2">
+                    <option value="">— Aucune —</option>
+                </select>
+            </label>
+        </div>
+        <div class="admin-actions-row">
+            <button type="button" class="admin-btn admin-btn-primary" id="event-submit">📅 Programmer</button>
+            <span class="admin-upload-hint">Reprogrammer un événement déjà planifié met simplement à jour ses infos.</span>
+        </div>
+
+        <div class="admin-table-wrapper" style="margin-top:18px;">
+            <table class="admin-table" id="event-table">
+                <thead>
+                    <tr>
+                        <th>Image</th>
+                        <th>Événement</th>
+                        <th>Début</th>
+                        <th>Fin</th>
+                        <th>Bonus</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="event-table-body">
+                    <tr><td colspan="6" class="admin-empty-state">Chargement…</td></tr>
+                </tbody>
+            </table>
+        </div>
     </div>
 
     <div id="admin-add-character" class="admin-card" style="display:none;">

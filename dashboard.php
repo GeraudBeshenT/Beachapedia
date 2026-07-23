@@ -14,7 +14,7 @@ if (isset($_GET['lang'])) {
 
 // 2. Vérification de la sécurité
 if (!isset($_SESSION['player_id'])) {
-    header("Location: index.php");
+    header("Location: /");
     exit();
 }
 
@@ -32,6 +32,10 @@ $tous_les_prix = $stmt_prix->fetchAll(PDO::FETCH_ASSOC);
     // On injecte les données proprement
     window.PRIX_BATIMENTS = <?php echo json_encode($tous_les_prix); ?>;
     console.log("Données chargées :", window.PRIX_BATIMENTS);
+
+    // Options de bonus par emplacement de statue (onglet Profil > Statue),
+    // utilisées pour peupler dynamiquement le menu déroulant "Bonus" en JS.
+    window.STATUE_OPTIONS_BY_TID = <?php echo json_encode($statue_options_by_tid); ?>;
 </script>
 
 <?php
@@ -106,7 +110,7 @@ $bb_languages = [
         <div class="sidebar-inner">
 
             <div class="sidebar-header">
-                <a href="dashboard.php" class="sidebar-logo">
+                <a href="/dashboard" class="sidebar-logo">
                     <img src="images/Beachapedia.webp" alt="Beachapedia" class="sidebar-logo-img" onerror="this.style.display='none'">
                     <span class="sidebar-logo-text">Beachapedia</span>
                 </a>
@@ -151,21 +155,21 @@ $bb_languages = [
                                 <?php if ($tab_heros_unlocked): ?>
                                 <button class="nav-button" onclick="showTab('Character-Hero')">Héros</button>
                                 <?php else: ?>
-                                <button class="nav-button locked" disabled title="Débloqué au QG niveau <?php echo (int)$hq_min_hero; ?> (actuel : <?php echo (int)$qg; ?>)">Héros 🔒</button>
+                                <button class="nav-button locked" disabled title="Débloqué au QG niveau <?php echo (int)$hq_min_hero; ?> (actuel : <?php echo (int)$qg; ?>)">Héros <img class="troop-card-condition-icon" src="images/icons/Lock.png"></button>
                                 <?php endif; ?>
                             </li>
                             <li>
                                 <?php if ($tab_proto_unlocked): ?>
                                 <button class="nav-button" onclick="showTab('Character-Proto')">Proto-troupes</button>
                                 <?php else: ?>
-                                <button class="nav-button locked" disabled title="Débloqué au QG niveau <?php echo (int)$hq_min_proto; ?> (actuel : <?php echo (int)$qg; ?>)">Proto-troupes 🔒</button>
+                                <button class="nav-button locked" disabled title="Débloqué au QG niveau <?php echo (int)$hq_min_proto; ?> (actuel : <?php echo (int)$qg; ?>)">Proto-troupes <img class="troop-card-condition-icon" src="images/icons/Lock.png"></button>
                                 <?php endif; ?>
                             </li>
                             <li>
                                 <?php if ($tab_chefs_unlocked): ?>
                                 <button class="nav-button" onclick="showTab('Character-Leader')">Chef de bataillon</button>
                                 <?php else: ?>
-                                <button class="nav-button locked" disabled title="Débloqué au QG niveau <?php echo (int)$hq_min_officier; ?> (actuel : <?php echo (int)$qg; ?>)">Chef de bataillon 🔒</button>
+                                <button class="nav-button locked" disabled title="Débloqué au QG niveau <?php echo (int)$hq_min_officier; ?> (actuel : <?php echo (int)$qg; ?>)">Chef de bataillon <img class="troop-card-condition-icon" src="images/icons/Lock.png"></button>
                                 <?php endif; ?>
                             </li>
                             <li><button class="nav-button" onclick="showTab('Character-Spell')">Capacité de canonnière</button></li>
@@ -180,7 +184,7 @@ $bb_languages = [
                         <?php endif; ?>
                             <span class="menu-icon"><svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="7" cy="6.5" r="2.3" stroke="currentColor" stroke-width="1.6"/><circle cx="14" cy="7.5" r="1.9" stroke="currentColor" stroke-width="1.6"/><path d="M2.5 16.2c.5-2.8 2.3-4.3 4.5-4.3s4 1.5 4.5 4.3M11.8 12.3c1.9.1 3.4 1.5 3.8 3.9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
                             <span class="menu-label">Tribus</span>
-                            <?php if (!$tab_tribus_unlocked): ?><span class="menu-lock">🔒</span><?php endif; ?>
+                            <?php if (!$tab_tribus_unlocked): ?><span class="menu-lock"><img class="troop-card-condition-icon" src="images/icons/Lock.png"></span><?php endif; ?>
                         </div>
                     </div>
 
@@ -199,14 +203,7 @@ $bb_languages = [
                         <?php endif; ?>
                             <span class="menu-icon"><svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M8.5 2.5h3l1.5 10h-6l1.5-10z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M6 17.5h8M6.8 15h6.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
                             <span class="menu-label">Monument mystique</span>
-                            <?php if (!$tab_monument_unlocked): ?><span class="menu-lock">🔒</span><?php endif; ?>
-                        </div>
-                    </div>
-
-                    <div class="menu-group">
-                        <div class="menu-header dashboard-btn" onclick="showTab('BoomPass')" data-tooltip="Boom Pass">
-                            <span class="menu-icon"><svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2.5 8.3a1.7 1.7 0 000 3.4v3.3c0 .7.6 1.2 1.2 1.2h12.6c.7 0 1.2-.5 1.2-1.2v-3.3a1.7 1.7 0 010-3.4V5c0-.7-.5-1.2-1.2-1.2H3.7c-.6 0-1.2.5-1.2 1.2v3.3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 4v12" stroke="currentColor" stroke-width="1.5" stroke-dasharray="1.6 2" stroke-linecap="round"/></svg></span>
-                            <span class="menu-label">Boom Pass</span>
+                            <?php if (!$tab_monument_unlocked): ?><span class="menu-lock"><img class="troop-card-condition-icon" src="images/icons/Lock.png"></span><?php endif; ?>
                         </div>
                     </div>
 
@@ -221,7 +218,7 @@ $bb_languages = [
                             <?php if ($tab_gravures_unlocked): ?>
                             <span class="menu-caret">▾</span>
                             <?php else: ?>
-                            <span class="menu-lock">🔒</span>
+                            <span class="menu-lock"><img class="troop-card-condition-icon" src="images/icons/Lock.png"></span>
                             <?php endif; ?>
                         </div>
                         <ul class="submenu" style="display: none;">
@@ -229,14 +226,14 @@ $bb_languages = [
                                 <?php if ($tab_gravures_off_unlocked): ?>
                                 <button class="nav-button" onclick="showTab('Engraving-Offensive')">Offensive</button>
                                 <?php else: ?>
-                                <button class="nav-button locked" disabled title="Débloqué une fois le Graveur construit">Offensive 🔒</button>
+                                <button class="nav-button locked" disabled title="Débloqué une fois le Graveur construit">Offensive <img class="troop-card-condition-icon" src="images/icons/Lock.png"></button>
                                 <?php endif; ?>
                             </li>
                             <li>
                                 <?php if ($tab_gravures_def_unlocked): ?>
                                 <button class="nav-button" onclick="showTab('Engraving-Defensive')">Defensive</button>
                                 <?php else: ?>
-                                <button class="nav-button locked" disabled title="Débloqué avec le Graveur niveau 2 (actuel : <?php echo (int)$graveur_level; ?>)">Defensive 🔒</button>
+                                <button class="nav-button locked" disabled title="Débloqué avec le Graveur niveau 2 (actuel : <?php echo (int)$graveur_level; ?>)">Defensive <img class="troop-card-condition-icon" src="images/icons/Lock.png"></button>
                                 <?php endif; ?>
                             </li>
                         </ul>
@@ -276,20 +273,12 @@ $bb_languages = [
                 </div>
 
                 <div class="sidebar-profile">
-                    <div class="profile-btn" onclick="toggleProfileMenu(event)" data-tooltip="<?php echo htmlspecialchars($_SESSION['player_nom']); ?>">
+                    <div class="profile-btn" onclick="showTab('Profile-Overview')" data-tooltip="<?php echo htmlspecialchars($_SESSION['player_nom']); ?>">
                         <div class="profile-avatar">
                             <?php echo htmlspecialchars(strtoupper(substr($_SESSION['player_nom'], 0, 1))); ?>
                             <img src="images/icons/gacha_info_icon.png" class="badge-icon" alt="" onerror="this.style.display='none'">
                         </div>
                         <span class="profile-name"><?php echo htmlspecialchars($_SESSION['player_nom']); ?></span>
-
-                        <div class="profile-dropdown" id="profileDropdown">
-                            <a href="#" onclick="showTab('MassUpgrade'); return false;">🚀 Mass Upgrade</a>
-                            <?php if (($_SESSION['player_id'] ?? null) === ADMIN_PLAYER_ID): ?>
-                            <a href="admin.php">🛠️ Administration</a>
-                            <?php endif; ?>
-                            <a href="deconnexion.php">🚪 Déconnexion</a>
-                        </div>
                     </div>
                 </div>
             </div>
@@ -299,7 +288,28 @@ $bb_languages = [
 
     <div class="main-content">
 
+        <div class="content-body-flex">
+        <div class="content-main-col">
+
         <?php include 'modal_qg.php'; ?>
+
+        <!-- Modale de confirmation déblocage/verrouillage d'un Chef de bataillon
+             (ouverte depuis la barre de déblocage rapide, voir renderOfficerQuickBar
+             dans functions.php et openOfficerUnlockModal() dans script.js) -->
+        <div id="officer-unlock-modal" class="modal">
+            <div class="modal-content officer-unlock-modal-content">
+                <span class="close-modal" onclick="closeOfficerUnlockModal()">&times;</span>
+                <div class="officer-unlock-modal-body">
+                    <img id="officer-unlock-modal-img" src="" alt="">
+                    <h3 id="officer-unlock-modal-name"></h3>
+                    <p id="officer-unlock-modal-status" style="color:#95a5a6;"></p>
+                    <div class="officer-unlock-modal-actions">
+                        <button type="button" class="officer-unlock-btn officer-unlock-btn-yes" onclick="confirmOfficerUnlock(true)"><img class="troop-card-condition-icon" src="images/icons/Unlock.png" style="width:50px;"> Débloqué</button>
+                        <button type="button" class="officer-unlock-btn officer-unlock-btn-no" onclick="confirmOfficerUnlock(false)"><img class="troop-card-condition-icon" src="images/icons/Lock.png" style="width:50px;"> Pas débloqué / Reverrouiller</button>
+                    </div>
+                </div>
+            </div>
+        </div>
 
         <?php
             // On pré-calcule les stats pour les passer à la sidebar
@@ -361,14 +371,17 @@ $bb_languages = [
                 'total'      => $tribus_total_tribus,
             ];
 
-            // --- Monument mystique (niveau du monument + nombre de bonus obtenus) ---
-            $monument_max_level  = 700;
+            // --- Monument mystique (%age dashboard basé sur le niveau MM déclaré par le
+            // joueur -- joueurs.MM, $player_mm_level, voir queries.php -- PAS sur
+            // $monument_level qui lui ne sert qu'au déblocage de l'onglet / aux stats de
+            // la page Bâtiments > Support) ---
+            $monument_max_level  = 800;
             $monument_bonus_total    = count($cc_bonuses);
             $monument_bonus_obtenus  = count(array_filter($player_bonuses, fn($nb) => $nb > 0));
             $stats_monument = [
-                'level'         => $monument_level,
+                'level'         => $player_mm_level,
                 'max_level'     => $monument_max_level,
-                'percent'       => ($monument_max_level > 0) ? round(($monument_level / $monument_max_level) * 100, 1) : 0,
+                'percent'       => ($monument_max_level > 0) ? round(($player_mm_level / $monument_max_level) * 100, 1) : 0,
                 'bonus_obtenus' => $monument_bonus_obtenus,
                 'bonus_total'   => $monument_bonus_total,
             ];
@@ -417,6 +430,13 @@ $bb_languages = [
                     $stats_tribus, $stats_monument,
                     $qg
                 );
+
+                // Bandeau horizontal (scroll) listant tous les niveaux de QG, avec une coche
+                // (images/icons/check.png) sur les niveaux où bâtiments + troupes + capacités
+                // de canonnière + héros débloqués à ce QG sont TOUS au niveau maximum absolu.
+                // $all_qg_images vient de queries.php (Niveau + ExportName de TID_BUILDING_PALACE).
+                $qg_maxed_map = getQgMaxedMap($pdo, $id_player, $all_qg_images);
+                renderQgProgressStrip($all_qg_images, $qg_maxed_map, $qg);
             ?>
         </div>
 
@@ -541,9 +561,19 @@ $bb_languages = [
         </div>
         <div id="Character-Leader" class="tab-content">
         <h2>Chef de bataillon</h2>
+            <?php renderOfficerQuickBar($officers_list, $officer_ranks_by_id ?? []); ?>
+            <?php
+                // La barre ci-dessus (renderOfficerQuickBar) affiche TOUS les officiers pour
+                // permettre de débloquer/reverrouiller. En revanche, les cartes détaillées
+                // ci-dessous (niveau, talents, capacités) n'ont de sens que pour les officiers
+                // déjà débloqués -> on filtre sur Debloque = 1 uniquement pour cet affichage.
+                $officers_list_debloques = array_values(array_filter($officers_list, function($o) {
+                    return (int)($o['Debloque'] ?? 0) === 1;
+                }));
+            ?>
             <div class="dashboard-wrapper">
                 <div style="flex: 3;">
-                    <?php renderUnitsTable($officers_list, $character_progress, $house_levels, $pdo, $_SESSION['player_id']); ?>
+                    <?php renderUnitsTable($officers_list_debloques, $character_progress, $house_levels, $pdo, $_SESSION['player_id']); ?>
                 </div>
                 
                 <div style="flex: 1;">
@@ -574,12 +604,8 @@ $bb_languages = [
             <h2>Exploration de l'Archipel</h2>
         </div>
         <div id="Monument" class="tab-content">
-            <?php renderMysticMonument($monument_level, $cc_bonuses, $player_bonuses); ?>
+            <?php renderMysticMonument($player_mm_level, $cc_bonuses, $player_bonuses); ?>
         </div>
-        <div id="BoomPass" class="tab-content">
-            <h2>Récompenses du Boom Pass</h2>
-        </div>
-
         <div id="Engraving-Offensive" class="tab-content">
             <h2>Gravures Offensives</h2>
             <div class="dashboard-wrapper">
@@ -604,8 +630,77 @@ $bb_languages = [
             </div>
         </div>
 
+        <?php
+            // Bonus de vitesse actuels du joueur (Profil > Boost), pour pré-remplir le formulaire.
+            $player_boosts = getPlayerBoosts($pdo, $id_player);
+        ?>
+        <div id="Profile-Overview" class="tab-content">
+            <h2>Profil</h2>
+
+            <div class="profile-page-header">
+                <div class="profile-page-avatar">
+                    <?php echo htmlspecialchars(strtoupper(substr($_SESSION['player_nom'], 0, 1))); ?>
+                </div>
+                <div class="profile-page-identity">
+                    <span class="profile-page-name"><?php echo htmlspecialchars($_SESSION['player_nom']); ?></span>
+                    <span class="profile-page-sub">QG niveau <?php echo (int)$qg; ?></span>
+                </div>
+            </div>
+
+            <div class="profile-page-actions">
+                <button type="button" class="profile-action-btn" onclick="showTab('MassUpgrade')">🚀 Mass Upgrade</button>
+                <?php if (($_SESSION['player_id'] ?? null) === ADMIN_PLAYER_ID): ?>
+                <a href="/admin" class="profile-action-btn">🛠️ Administration</a>
+                <?php endif; ?>
+                <a href="deconnexion.php" class="profile-action-btn profile-action-btn-danger">🚪 Déconnexion</a>
+            </div>
+
+            <?php renderCategoryNav('Réglages', [
+                ['label' => 'Boost', 'sub' => 'Bonus de vitesse de construction', 'tab' => 'Profile-Boost', 'icon' => '⚡'],
+                ['label' => 'Statue', 'sub' => 'Gérer mes statues', 'tab' => 'Profile-Statue', 'icon' => '🗿'],
+            ]); ?>
+        </div>
+
+        <div id="Profile-Boost" class="tab-content">
+            <h2>Boost</h2>
+            <p style="margin: 10px 0 20px; color: #bdc3c7;">
+                Ces bonus réduisent uniquement le temps d'amélioration <strong>affiché sur le site</strong>
+                (aucun impact sur les valeurs réelles du jeu). BuildingBoost s'applique aux bâtiments
+                améliorés depuis le QG (Économiques / Défensifs / Support) — pas aux Pièges/Mines ni
+                aux Troupes, qui dépendent d'ArmoryBoost (Arsenal/Atelier : Pièges, Mines, Troupes,
+                Proto-troupes, Héros, Chefs de bataillon, Capacités de canonnière).
+            </p>
+
+            <div class="boost-form">
+                <div class="boost-field">
+                    <label for="boost-building">🏛️ BuildingBoost</label>
+                    <div class="boost-input-wrap">
+                        <input type="number" id="boost-building" min="0" max="99" step="1" value="<?php echo (int)$player_boosts['building']; ?>">
+                        <span class="boost-input-suffix">%</span>
+                    </div>
+                </div>
+                <div class="boost-field">
+                    <label for="boost-armory">⚔️ ArmoryBoost</label>
+                    <div class="boost-input-wrap">
+                        <input type="number" id="boost-armory" min="0" max="99" step="1" value="<?php echo (int)$player_boosts['armory']; ?>">
+                        <span class="boost-input-suffix">%</span>
+                    </div>
+                </div>
+                <button type="button" class="boost-save-btn" onclick="saveBoosts()">Enregistrer</button>
+                <span class="boost-save-status" id="boost-save-status"></span>
+            </div>
+        </div>
+
+        <div id="Profile-Statue" class="tab-content">
+            <?php renderStatuesTable($artifact_capacity, $statue_emplacements, $player_statues); ?>
+        </div>
+
         <?php include 'mass_upgrade.php'; ?>
 
         
+
+        </div>
+        <?php renderEventPanel(getActiveEvents($pdo)); ?>
+        </div>
 
     </div> <?php include 'footer.php'; ?>

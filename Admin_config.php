@@ -780,3 +780,123 @@ function admin_delete_officer_ability_level(PDO $pdo, $ability_tid, $level) {
     $stmt = $pdo->prepare("DELETE FROM officer_abilities WHERE TID = ? AND Niveau = ?");
     $stmt->execute([$ability_tid, $level]);
 }
+
+// ============================================================================
+// ÉVÉNEMENTS (bannière dashboard + onglet admin dédié)
+// ----------------------------------------------------------------------------
+// Schéma attendu :
+//   - eventid(id PK, TID FK->texts.TID, HQUnlock, ExportName)
+//   - tmob(id FK->eventid.id, debut DATETIME, end DATETIME)
+// Un seul créneau (debut/end) par événement dans tmob : "programmer" un
+// événement déjà programmé met simplement à jour ses dates (upsert), plutôt
+// que d'empiler plusieurs lignes pour le même id.
+// ============================================================================
+
+/**
+ * Liste des événements définis (eventid + libellé FR de texts), pour peupler
+ * la liste déroulante d'ajout côté admin.
+ */
+function admin_list_event_definitions(PDO $pdo) {
+    $sql = "SELECT ev.id, ev.TID, ev.hqunlock, ev.ExportName, IFNULL(t.FR, ev.TID) AS label
+            FROM eventid ev
+            LEFT JOIN texts t ON t.TID = ev.TID COLLATE utf8mb4_unicode_ci
+            ORDER BY label ASC";
+    return $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/**
+ * Événements programmés dont la date de fin n'est pas encore passée
+ * (actifs OU à venir), pour le datatable admin. Les événements sans date de
+ * fin (tm.end NULL) restent affichés indéfiniment. Triés par date de début.
+ */
+function admin_list_scheduled_events(PDO $pdo) {
+    $sql = "SELECT tm.id, tm.debut, tm.`end`, tm.gba, tm.troop1, tm.troop2,
+                   ev.TID, ev.hqunlock, ev.ExportName,
+                   IFNULL(t.FR, ev.TID) AS label,
+                   gba_t.FR   AS gba_label,
+                   t1_t.FR    AS troop1_label,
+                   t2_t.FR    AS troop2_label
+            FROM tmob tm
+            INNER JOIN eventid ev ON ev.id = tm.id
+            LEFT JOIN texts t ON t.TID = ev.TID COLLATE utf8mb4_unicode_ci
+            LEFT JOIN texts gba_t ON gba_t.TID = tm.gba    COLLATE utf8mb4_unicode_ci
+            LEFT JOIN texts t1_t  ON t1_t.TID  = tm.troop1 COLLATE utf8mb4_unicode_ci
+            LEFT JOIN texts t2_t  ON t2_t.TID  = tm.troop2 COLLATE utf8mb4_unicode_ci
+            WHERE tm.`end` IS NULL OR tm.`end` >= NOW()
+            ORDER BY tm.debut ASC";
+    return $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/**
+ * Normalise une date reçue du <input type="datetime-local"> (format
+ * "YYYY-MM-DDTHH:MM") vers un DATETIME MySQL ("YYYY-MM-DD HH:MM:SS").
+ */
+function admin_normalize_datetime($value) {
+    $value = trim((string)$value);
+    if ($value === '') throw new Exception("Date manquante.");
+    $value = str_replace('T', ' ', $value);
+    $ts = strtotime($value);
+    if ($ts === false) throw new Exception("Date invalide : {$value}");
+    return date('Y-m-d H:i:s', $ts);
+}
+
+/**
+ * Vérifie qu'un TID existe bien dans characterid (utilisé pour gba/troop1/troop2).
+ * Renvoie le TID normalisé (ou null si vide).
+ */
+function admin_check_character_tid(PDO $pdo, $tid) {
+    $tid = trim((string)$tid);
+    if ($tid === '') return null;
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM characterid WHERE TID = ?");
+    $stmt->execute([$tid]);
+    if ((int)$stmt->fetchColumn() === 0) {
+        throw new Exception("Le personnage sélectionné (\"{$tid}\") n'existe pas.");
+    }
+    return $tid;
+}
+
+/**
+ * Programme (ou reprogramme) un événement dans tmob : upsert sur l'id
+ * (= eventid.id). $debut est obligatoire, $end est optionnel (chaîne vide/
+ * null = pas de date de fin, l'événement reste actif indéfiniment une fois
+ * démarré). $gba / $troop1 / $troop2 sont des TID de characterid (optionnels,
+ * pertinents uniquement pour les événements id 5 / 12, mais on ne bloque
+ * pas leur saisie pour d'autres événements si jamais utile).
+ */
+function admin_save_event_schedule(PDO $pdo, $id_event, $debut, $end, $gba = '', $troop1 = '', $troop2 = '') {
+    $id_event = (int)$id_event;
+    if ($id_event <= 0) throw new Exception("Événement manquant.");
+
+    $stmt_check = $pdo->prepare("SELECT COUNT(*) FROM eventid WHERE id = ?");
+    $stmt_check->execute([$id_event]);
+    if ((int)$stmt_check->fetchColumn() === 0) {
+        throw new Exception("Cet événement n'existe pas.");
+    }
+
+    $debut_sql = admin_normalize_datetime($debut);
+    $end_sql   = (trim((string)$end) !== '') ? admin_normalize_datetime($end) : null;
+    if ($end_sql !== null && strtotime($end_sql) <= strtotime($debut_sql)) {
+        throw new Exception("La date de fin doit être après la date de début.");
+    }
+
+    $gba_sql    = admin_check_character_tid($pdo, $gba);
+    $troop1_sql = admin_check_character_tid($pdo, $troop1);
+    $troop2_sql = admin_check_character_tid($pdo, $troop2);
+
+    $stmt_exists = $pdo->prepare("SELECT COUNT(*) FROM tmob WHERE id = ?");
+    $stmt_exists->execute([$id_event]);
+    $exists = (int)$stmt_exists->fetchColumn() > 0;
+
+    if ($exists) {
+        $stmt = $pdo->prepare("UPDATE tmob SET debut = ?, `end` = ?, gba = ?, troop1 = ?, troop2 = ? WHERE id = ?");
+        $stmt->execute([$debut_sql, $end_sql, $gba_sql, $troop1_sql, $troop2_sql, $id_event]);
+    } else {
+        $stmt = $pdo->prepare("INSERT INTO tmob (id, debut, `end`, gba, troop1, troop2) VALUES (?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$id_event, $debut_sql, $end_sql, $gba_sql, $troop1_sql, $troop2_sql]);
+    }
+}
+
+function admin_delete_event_schedule(PDO $pdo, $id_event) {
+    $stmt = $pdo->prepare("DELETE FROM tmob WHERE id = ?");
+    $stmt->execute([(int)$id_event]);
+}

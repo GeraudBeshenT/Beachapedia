@@ -12,7 +12,6 @@
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&display=swap" rel="stylesheet">
     <script>window.PRIX_BATIMENTS = <?php echo htmlspecialchars($_SESSION['player_nom']); ?>;</script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="script.js"></script>
     <script src="script.js?v=<?php echo time(); ?>"></script>
 </head>
 <body>

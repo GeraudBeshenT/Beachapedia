@@ -182,6 +182,32 @@ try {
             ]);
             break;
 
+        case 'list_event_definitions':
+            echo json_encode(['success' => true, 'events' => admin_list_event_definitions($pdo)]);
+            break;
+
+        case 'list_scheduled_events':
+            echo json_encode(['success' => true, 'events' => admin_list_scheduled_events($pdo)]);
+            break;
+
+        case 'save_event_schedule':
+            $id_event = $_POST['id_event'] ?? '';
+            $debut    = $_POST['debut'] ?? '';
+            $end      = $_POST['end'] ?? '';
+            $gba      = $_POST['gba'] ?? '';
+            $troop1   = $_POST['troop1'] ?? '';
+            $troop2   = $_POST['troop2'] ?? '';
+            admin_save_event_schedule($pdo, $id_event, $debut, $end, $gba, $troop1, $troop2);
+            echo json_encode(['success' => true, 'message' => 'Événement programmé.']);
+            break;
+
+        case 'delete_event_schedule':
+            $id_event = $_POST['id_event'] ?? '';
+            if ($id_event === '') throw new Exception("Événement manquant.");
+            admin_delete_event_schedule($pdo, $id_event);
+            echo json_encode(['success' => true, 'message' => 'Programmation supprimée.']);
+            break;
+
         case 'add_character':
             $tid = admin_add_character($pdo, [
                 'tid'             => $_POST['tid'] ?? '',

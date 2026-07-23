@@ -35,25 +35,14 @@ try {
 
     if ($action_type === 'level') {
         // --- MISE À JOUR NIVEAU MM ---
-        $stmt_bid = $pdo->prepare("SELECT id FROM buildingid WHERE TID = 'TID_BUILDING_CC' LIMIT 1");
-        $stmt_bid->execute();
-        $id_building = $stmt_bid->fetchColumn();
+        // Ce niveau est purement déclaratif (saisi par le joueur dans l'onglet
+        // "Monument mystique") et n'a aucun lien avec progress_building : il est
+        // stocké dans joueurs.MM. Le niveau réel du bâtiment (qui conditionne le
+        // déblocage de l'onglet et l'affichage dans Bâtiments > Support) reste
+        // géré séparément dans progress_building et n'est jamais modifié ici.
+        $stmt_upd = $pdo->prepare("UPDATE joueurs SET MM = ? WHERE id_player = ?");
+        $stmt_upd->execute([$target_value, $id_player]);
 
-        if (!$id_building) {
-            throw new Exception("Monument Mystique introuvable.");
-        }
-
-        $stmt_check = $pdo->prepare("SELECT 1 FROM progress_building WHERE id_player = ? AND id_building = ? AND id_instance = 1 LIMIT 1");
-        $stmt_check->execute([$id_player, $id_building]);
-        
-        if ($stmt_check->fetch()) {
-            $stmt_upd = $pdo->prepare("UPDATE progress_building SET niveau = ? WHERE id_player = ? AND id_building = ? AND id_instance = 1");
-            $stmt_upd->execute([$target_value, $id_player, $id_building]);
-        } else {
-            $stmt_ins = $pdo->prepare("INSERT INTO progress_building (id_player, id_building, id_instance, niveau) VALUES (?, ?, 1, ?)");
-            $stmt_ins->execute([$id_player, $id_building, $target_value]);
-        }
-        
     } elseif ($action_type === 'bonus') {
         // --- MISE À JOUR BONUS ---
         // Vérification de limite MaxCount

@@ -665,7 +665,230 @@
             // On reste sur la page admin, mais avec un vrai rechargement — et le
             // nouveau TID pré-sélectionné pour confirmer visuellement l'ajout.
             const params = new URLSearchParams({ type: 'character', class: payload.class, tid: data.tid });
-            window.location.href = 'admin.php?' + params.toString();
+            window.location.href = '/admin?' + params.toString();
+        } catch (e) {
+            showToast(e.message, true);
+        }
+    });
+
+    // =========================================================================
+    // Événements — carte "admin-events" (dropdown + calendrier + datatable)
+    // =========================================================================
+
+    // IDs spéciaux (voir demande) : 5 = GBA (sort TempSpell), 12 = Troopmania (2 troupes).
+    const EVENT_ID_GBA        = '5';
+    const EVENT_ID_TROOPMANIA = '12';
+
+    const eventSelect    = document.getElementById('event-select');
+    const eventDebut     = document.getElementById('event-debut');
+    const eventEnd       = document.getElementById('event-end');
+    const eventSubmit    = document.getElementById('event-submit');
+    const eventTableBody = document.getElementById('event-table-body');
+
+    const eventGbaWrap    = document.getElementById('event-gba-wrap');
+    const eventGbaSelect  = document.getElementById('event-gba');
+    const eventTroop1Wrap   = document.getElementById('event-troop1-wrap');
+    const eventTroop1Select = document.getElementById('event-troop1');
+    const eventTroop2Wrap   = document.getElementById('event-troop2-wrap');
+    const eventTroop2Select = document.getElementById('event-troop2');
+
+    // Caches pour ne charger les listes de personnages qu'une seule fois.
+    let tempSpellOptionsCache = null; // characterid.Class = 'TempSpell'
+    let troopOptionsCache     = null; // characterid.Class = 'Troupe'
+
+    async function getCharacterOptions(cssClass) {
+        if (cssClass === 'TempSpell') {
+            if (!tempSpellOptionsCache) {
+                const data = await api('list_tids', { params: { type: 'characterid', class: 'TempSpell' } });
+                tempSpellOptionsCache = data.tids;
+            }
+            return tempSpellOptionsCache;
+        }
+        if (!troopOptionsCache) {
+            const data = await api('list_tids', { params: { type: 'characterid', class: 'Troupe' } });
+            troopOptionsCache = data.tids;
+        }
+        return troopOptionsCache;
+    }
+
+    function fillCharacterSelect(selectEl, options, placeholder, selectedTid) {
+        selectEl.innerHTML = `<option value="">${placeholder}</option>` +
+            options.map(o => `<option value="${escapeAttr(o.tid)}">${escapeHtml(o.label)}</option>`).join('');
+        if (selectedTid) selectEl.value = selectedTid;
+    }
+
+    // Affiche/cache les champs Bonus (GBA ou Troopmania) selon l'événement choisi
+    // dans le formulaire d'ajout, et pré-charge les listes déroulantes correspondantes.
+    async function refreshEventBonusFields() {
+        const idEvent = eventSelect.value;
+        eventGbaWrap.style.display    = 'none';
+        eventTroop1Wrap.style.display = 'none';
+        eventTroop2Wrap.style.display = 'none';
+
+        if (idEvent === EVENT_ID_GBA) {
+            eventGbaWrap.style.display = '';
+            try {
+                fillCharacterSelect(eventGbaSelect, await getCharacterOptions('TempSpell'), '— Aucun —');
+            } catch (e) { showToast(e.message, true); }
+        } else if (idEvent === EVENT_ID_TROOPMANIA) {
+            eventTroop1Wrap.style.display = '';
+            eventTroop2Wrap.style.display = '';
+            try {
+                const troops = await getCharacterOptions('Troupe');
+                fillCharacterSelect(eventTroop1Select, troops, '— Aucune —');
+                fillCharacterSelect(eventTroop2Select, troops, '— Aucune —');
+            } catch (e) { showToast(e.message, true); }
+        }
+    }
+
+    eventSelect.addEventListener('change', refreshEventBonusFields);
+
+    // MySQL "YYYY-MM-DD HH:MM:SS" -> valeur attendue par <input type="datetime-local">
+    function toDatetimeLocal(mysqlDatetime) {
+        if (!mysqlDatetime) return '';
+        return mysqlDatetime.replace(' ', 'T').slice(0, 16);
+    }
+
+    async function loadEventDefinitions() {
+        eventSelect.innerHTML = '<option value="">Chargement…</option>';
+        try {
+            const data = await api('list_event_definitions');
+            eventSelect.innerHTML = '';
+            if (!data.events.length) {
+                eventSelect.innerHTML = '<option value="">— Aucun événement défini —</option>';
+                return;
+            }
+            eventSelect.innerHTML = '<option value="">— Choisir un événement —</option>';
+            data.events.forEach(ev => {
+                const opt = document.createElement('option');
+                opt.value = ev.id;
+                opt.textContent = ev.label;
+                eventSelect.appendChild(opt);
+            });
+        } catch (e) {
+            showToast(e.message, true);
+        }
+    }
+
+    async function loadScheduledEvents() {
+        eventTableBody.innerHTML = '<tr><td colspan="6" class="admin-empty-state">Chargement…</td></tr>';
+        try {
+            const data = await api('list_scheduled_events');
+            renderEventTable(data.events);
+        } catch (e) {
+            eventTableBody.innerHTML = '<tr><td colspan="6" class="admin-empty-state">Erreur de chargement.</td></tr>';
+            showToast(e.message, true);
+        }
+    }
+
+    // Construit le contenu de la cellule "Bonus" pour une ligne du datatable :
+    // rien pour les événements normaux, un select TempSpell pour l'event GBA (5),
+    // deux select Troupe pour l'event Troopmania (12).
+    async function buildBonusCell(td, ev) {
+        const idEvent = String(ev.id);
+        if (idEvent === EVENT_ID_GBA) {
+            td.innerHTML = `<select data-col="gba" class="event-bonus-select"><option value="">— Aucun —</option></select>`;
+            const sel = td.querySelector('select');
+            try {
+                fillCharacterSelect(sel, await getCharacterOptions('TempSpell'), '— Aucun —', ev.gba);
+            } catch (e) { showToast(e.message, true); }
+        } else if (idEvent === EVENT_ID_TROOPMANIA) {
+            td.innerHTML = `
+                <select data-col="troop1" class="event-bonus-select" style="margin-bottom:4px;"><option value="">— Troupe 1 —</option></select>
+                <select data-col="troop2" class="event-bonus-select"><option value="">— Troupe 2 —</option></select>
+            `;
+            const [sel1, sel2] = td.querySelectorAll('select');
+            try {
+                const troops = await getCharacterOptions('Troupe');
+                fillCharacterSelect(sel1, troops, '— Troupe 1 —', ev.troop1);
+                fillCharacterSelect(sel2, troops, '— Troupe 2 —', ev.troop2);
+            } catch (e) { showToast(e.message, true); }
+        } else {
+            td.innerHTML = '—';
+        }
+    }
+
+    function renderEventTable(events) {
+        eventTableBody.innerHTML = '';
+        if (!events.length) {
+            eventTableBody.innerHTML = '<tr><td colspan="6" class="admin-empty-state">Aucun événement programmé pour le moment.</td></tr>';
+            return;
+        }
+        events.forEach(ev => {
+            const tr = document.createElement('tr');
+            tr.dataset.id = ev.id;
+            tr.innerHTML = `
+                <td><img class="event-thumb" src="images/event/${escapeAttr(ev.ExportName)}.png" onerror="this.style.visibility='hidden'"></td>
+                <td>${escapeHtml(ev.label)}</td>
+                <td><input type="datetime-local" data-col="debut" value="${toDatetimeLocal(ev.debut)}"></td>
+                <td><input type="datetime-local" data-col="end" value="${toDatetimeLocal(ev.end)}" placeholder="Pas de fin"></td>
+                <td class="event-bonus-cell">…</td>
+                <td class="admin-row-actions">
+                    <button type="button" class="admin-btn admin-btn-mini event-row-save">💾</button>
+                    <button type="button" class="admin-btn admin-btn-mini admin-btn-danger event-row-delete">🗑️</button>
+                </td>
+            `;
+            tr.querySelector('.event-row-save').addEventListener('click', () => saveEventRow(tr, ev.id));
+            tr.querySelector('.event-row-delete').addEventListener('click', () => deleteEventRow(tr, ev.id, ev.label));
+            eventTableBody.appendChild(tr);
+            buildBonusCell(tr.querySelector('.event-bonus-cell'), ev);
+        });
+    }
+
+    async function saveEventRow(tr, idEvent) {
+        const debut  = tr.querySelector('[data-col="debut"]').value;
+        const end    = tr.querySelector('[data-col="end"]').value;
+        const gba    = tr.querySelector('[data-col="gba"]')?.value    || '';
+        const troop1 = tr.querySelector('[data-col="troop1"]')?.value || '';
+        const troop2 = tr.querySelector('[data-col="troop2"]')?.value || '';
+        try {
+            await api('save_event_schedule', {
+                method: 'POST',
+                body: buildForm({ id_event: idEvent, debut, end, gba, troop1, troop2 }),
+            });
+            showToast('Événement mis à jour.');
+            loadScheduledEvents();
+        } catch (e) {
+            showToast(e.message, true);
+        }
+    }
+
+    async function deleteEventRow(tr, idEvent, label) {
+        if (!confirm(`Retirer la programmation de « ${label} » ?`)) return;
+        try {
+            await api('delete_event_schedule', {
+                method: 'POST',
+                body: buildForm({ id_event: idEvent }),
+            });
+            showToast('Programmation supprimée.');
+            tr.remove();
+        } catch (e) {
+            showToast(e.message, true);
+        }
+    }
+
+    eventSubmit.addEventListener('click', async () => {
+        const idEvent = eventSelect.value;
+        if (!idEvent) { showToast('Choisis un événement.', true); return; }
+        if (!eventDebut.value) { showToast('Renseigne au moins la date de début.', true); return; }
+        try {
+            await api('save_event_schedule', {
+                method: 'POST',
+                body: buildForm({
+                    id_event: idEvent,
+                    debut: eventDebut.value,
+                    end: eventEnd.value, // peut être vide : pas de date de fin
+                    gba: idEvent === EVENT_ID_GBA ? eventGbaSelect.value : '',
+                    troop1: idEvent === EVENT_ID_TROOPMANIA ? eventTroop1Select.value : '',
+                    troop2: idEvent === EVENT_ID_TROOPMANIA ? eventTroop2Select.value : '',
+                }),
+            });
+            showToast('Événement programmé.');
+            eventSelect.value = '';
+            eventDebut.value = '';
+            eventEnd.value = '';
+            refreshEventBonusFields();
+            loadScheduledEvents();
         } catch (e) {
             showToast(e.message, true);
         }
@@ -703,6 +926,9 @@
         await loadClasses(initialClass);
         await loadTids(initialTid);
         refreshAddCharacterFieldsVisibility();
+
+        loadEventDefinitions();
+        loadScheduledEvents();
     }
 
     init();
